@@ -108,9 +108,9 @@
                                 {{ (prompt?.length || 0) }} / {{ MAX_PROMPT_CHARS }}
                             </span>
                         </div>
-                        <textarea v-model="prompt" rows="3" placeholder="Ex: Draw a right triangle and its circumscribed circle." 
+                        <textarea ref="promptBox" v-model="prompt" rows="3" placeholder="Ex: Draw a right triangle and its circumscribed circle." 
                                   :class="{'border-red-500 dark:border-red-500 focus:ring-red-500 focus:border-red-500': ((prompt?.length || 0) > MAX_PROMPT_CHARS), 'border-gray-300 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500': ((prompt?.length || 0) <= MAX_PROMPT_CHARS)}"
-                                  class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 focus:ring-2 transition-colors resize-none"></textarea>
+                                  class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 focus:ring-2 transition-colors resize-none overflow-y-hidden max-h-80"></textarea>
                         
                         <p v-if="((prompt?.length || 0) > MAX_PROMPT_CHARS)" class="text-xs text-red-500 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
                             <i class="fa-solid fa-circle-exclamation"></i> You have exceeded the maximum limit of {{ MAX_PROMPT_CHARS }} characters. Please shorten your text to continue.
@@ -304,6 +304,6 @@
         </transition>
     </div>
 
-    <script type="module" src="/static/app.js?v=10"></script>
+    <script type="module" src="/static/app.js?v=11"></script>
 </body>
 </html>

@@ -5,13 +5,28 @@ import CustomSelect from './components/CustomSelect.js';
 import MiniAlert from './components/MiniAlert.js';
 import Errors from './components/Errors.js';
 
-const { createApp, ref, computed, watch } = window.Vue;
+const { createApp, ref, computed, watch, nextTick } = window.Vue;
 
 const app = createApp({
     setup() {
         const apiKey = ref('');
         const showApiKeyModal = ref(false);
         const prompt = ref('');
+        const promptBox = ref(null);
+
+        // Grow the prompt textarea with its content; past its CSS max-height it scrolls instead.
+        const autoResize = () => {
+            const el = promptBox.value;
+            if (!el) return;
+            el.style.height = 'auto'; // shrink back to rows="3" before measuring
+            const borders = el.offsetHeight - el.clientHeight;
+            el.style.height = `${el.scrollHeight + borders}px`;
+            const maxHeight = parseFloat(getComputedStyle(el).maxHeight);
+            el.style.overflowY = el.scrollHeight + borders > maxHeight ? 'auto' : 'hidden';
+        };
+        // Watching the model (not @input) also covers text set by the example carousel.
+        watch(prompt, () => nextTick(autoResize));
+
         // Injected by the server in GET / from MAX_PROMPT_CHARS in app/security.py
         const MAX_PROMPT_CHARS = ref(window.TUTOR_CONFIG.maxPromptChars);
         const imageBase64 = ref(null);
@@ -453,7 +468,7 @@ const app = createApp({
         };
 
         return { 
-            isDark, toggleDarkMode, showApiKeyModal, apiKey, prompt, ttsVoice, 
+            isDark, toggleDarkMode, showApiKeyModal, apiKey, prompt, promptBox, ttsVoice,
             imageBase64, imagePreview, handleImageUpload, removeImage,
             useEdgeTts, edgeVoice, toggleEdgeTts, selectedModel,
             gttsOptions, edgeTtsOptions, modelOptions,
