@@ -1,9 +1,10 @@
-import AsciiWaves from './components/AsciiWaves.js';
-import FloatingBackground from './components/FloatingBackground.js';
-import ExampleCarousel from './components/ExampleCarousel.js';
-import CustomSelect from './components/CustomSelect.js';
-import MiniAlert from './components/MiniAlert.js';
-import Errors from './components/Errors.js';
+import AsciiWaves from './components/AsciiWaves.js?v=12';
+import FloatingBackground from './components/FloatingBackground.js?v=12';
+import ExampleCarousel from './components/ExampleCarousel.js?v=12';
+import CustomSelect from './components/CustomSelect.js?v=12';
+import MiniAlert from './components/MiniAlert.js?v=12';
+import Errors from './components/Errors.js?v=12';
+import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=12';
 
 const { createApp, ref, computed, watch, nextTick } = window.Vue;
 
@@ -36,37 +37,41 @@ const app = createApp({
         const useEdgeTts = ref(false);
         const selectedModel = ref('auto');
         
-        const gttsOptions = [
-            { value: 'auto', label: 'Auto-detect Language (AI)' },
-            { label: 'Spanish (Female only)', options: [
+        // Option labels are computed so they follow the UI language; voice and model names stay as-is.
+        const gttsOptions = computed(() => [
+            { value: 'auto', label: t('voice.auto') },
+            { label: t('voice.spanishFemale'), options: [
                 { value: 'es-es', label: 'Español (España)' },
                 { value: 'es-com.mx', label: 'Español (México)' }
             ]},
-            { label: 'English (Female only)', options: [
+            { label: t('voice.englishFemale'), options: [
                 { value: 'en-us', label: 'English (US)' },
                 { value: 'en-co.uk', label: 'English (UK)' }
             ]}
-        ];
+        ]);
         
-        const edgeTtsOptions = [
-            { label: 'Spanish', options: [
-                { value: 'es-MX-JorgeNeural', label: 'Español (México) - Jorge (Male)' },
-                { value: 'es-MX-DaliaNeural', label: 'Español (México) - Dalia (Female)' },
-                { value: 'es-ES-AlvaroNeural', label: 'Español (España) - Alvaro (Male)' },
-                { value: 'es-ES-ElviraNeural', label: 'Español (España) - Elvira (Female)' }
-            ]},
-            { label: 'English', options: [
-                { value: 'en-US-GuyNeural', label: 'English (US) - Guy (Male)' },
-                { value: 'en-US-JennyNeural', label: 'English (US) - Jenny (Female)' }
-            ]}
-        ];
+        const edgeTtsOptions = computed(() => {
+            const male = t('voice.male'), female = t('voice.female');
+            return [
+                { label: t('voice.spanish'), options: [
+                    { value: 'es-MX-JorgeNeural', label: `Español (México) - Jorge (${male})` },
+                    { value: 'es-MX-DaliaNeural', label: `Español (México) - Dalia (${female})` },
+                    { value: 'es-ES-AlvaroNeural', label: `Español (España) - Alvaro (${male})` },
+                    { value: 'es-ES-ElviraNeural', label: `Español (España) - Elvira (${female})` }
+                ]},
+                { label: t('voice.english'), options: [
+                    { value: 'en-US-GuyNeural', label: `English (US) - Guy (${male})` },
+                    { value: 'en-US-JennyNeural', label: `English (US) - Jenny (${female})` }
+                ]}
+            ];
+        });
         
-        const modelOptions = [
-            { value: 'auto', label: 'Auto (Smart Routing)' },
-            { value: 'openai/gpt-4o', label: 'GPT-4o (Advanced Math & Vision)' },
-            { value: 'openai/gpt-4o-mini', label: 'GPT-4o-mini (Basic Math)' },
+        const modelOptions = computed(() => [
+            { value: 'auto', label: t('model.auto') },
+            { value: 'openai/gpt-4o', label: `GPT-4o (${t('model.advanced')})` },
+            { value: 'openai/gpt-4o-mini', label: `GPT-4o-mini (${t('model.basic')})` },
             { value: 'anthropic/claude-sonnet-5.5', label: 'Claude 3.5 Sonnet' }
-        ];
+        ]);
 
         const toggleEdgeTts = () => { useEdgeTts.value = !useEdgeTts.value; };
         
@@ -81,7 +86,8 @@ const app = createApp({
         });
 
         const loading = ref(false);
-        const loadingMessage = ref('Iniciando...');
+        const loadingMessage = ref(''); // raw server message; shown through translateProgress
+        const progressText = computed(() => translateProgress(loadingMessage.value) || t('progress.starting'));
         const loadingPercent = ref(0);
         const error = ref('');
         const steps = ref([]);
@@ -141,7 +147,7 @@ const app = createApp({
             event.target.value = ''; // allow re-selecting the same file
             if (!file) return;
             if (!file.type.startsWith('image/')) {
-                error.value = 'El archivo seleccionado no es una imagen.';
+                error.value = t('error.notImage');
                 return;
             }
 
@@ -162,7 +168,7 @@ const app = createApp({
                 const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
                 if (base64.length > MAX_IMAGE_B64_CHARS) {
                     URL.revokeObjectURL(objectUrl);
-                    error.value = 'La imagen es demasiado grande, incluso después de comprimirla.';
+                    error.value = t('error.imageTooLarge');
                     return;
                 }
                 imagePreview.value = objectUrl;
@@ -170,7 +176,7 @@ const app = createApp({
             };
             img.onerror = () => {
                 URL.revokeObjectURL(objectUrl);
-                error.value = 'No se pudo leer la imagen.';
+                error.value = t('error.imageUnreadable');
             };
             img.src = objectUrl;
         };
@@ -224,6 +230,7 @@ const app = createApp({
             }
             
             loading.value = true;
+            loadingMessage.value = '';
             error.value = '';
             steps.value = [];
             meta.value = {};
@@ -256,7 +263,7 @@ const app = createApp({
                 
                 if (!response.ok) {
                     const errData = await response.json();
-                    throw new Error(errData.detail || 'Server error');
+                    throw new Error(errData.detail || t('error.server'));
                 }
                 
                 const reader = response.body.getReader();
@@ -305,14 +312,14 @@ const app = createApp({
                                     }
                                 }, 500);
                             } else if (data.status === 'error') {
-                                throw new Error(data.detail || 'Error during generation');
+                                throw new Error(data.detail || t('error.generation'));
                             }
                         }
                     }
                 }
                 
                 if (!completedSuccessfully) {
-                    throw new Error("La conexión se interrumpió inesperadamente. Intenta nuevamente.");
+                    throw new Error(t('error.interrupted'));
                 }
             } catch (e) {
                 error.value = e.message;
@@ -475,10 +482,14 @@ const app = createApp({
             MAX_PROMPT_CHARS, isPromptOverLimit, canGenerate,
             loading, loadingMessage, loadingPercent, error, steps, meta, startTutor,
             appletLoaded, isPlaying, currentStep, togglePlay, resetLesson, nextStep,
-            isFullscreen, toggleFullscreen, currentTypedText, volume
+            isFullscreen, toggleFullscreen, currentTypedText, volume,
+            progressText, lang, LANGS, setLang
         };
     }
 });
+
+// Available in every template (root and components) as t('key')
+app.config.globalProperties.t = t;
 
 app.component('ascii-waves', AsciiWaves);
 app.component('floating-background', FloatingBackground);

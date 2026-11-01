@@ -2,13 +2,13 @@ export default {
     template: `
     <div class="mt-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-3 border border-yellow-200 dark:border-yellow-800/50 transition-colors relative overflow-hidden" @mouseenter="pause" @mouseleave="resume">
         <h3 class="text-[10px] font-bold text-yellow-800 dark:text-yellow-300 mb-1 uppercase tracking-wider flex items-center gap-1">
-            <i class="fa-solid fa-circle-info"></i> Did you know?
+            <i class="fa-solid fa-circle-info"></i> {{ t('tips.title') }}
         </h3>
         
         <div class="h-10 relative flex items-center">
             <transition name="slide-fade" mode="out-in">
                 <p :key="currentIndex" class="text-xs text-gray-700 dark:text-gray-300 absolute w-full inset-y-0 flex items-center leading-tight">
-                    {{ tips[currentIndex] }}
+                    {{ t(tips[currentIndex]) }}
                 </p>
             </transition>
         </div>
@@ -23,14 +23,8 @@ export default {
     data() {
         return {
             currentIndex: 0,
-            tips: [
-                "The gpt-4o-mini model can hallucinate with complex problems. We recommend using gpt-4o.",
-                "Star this repository on GitHub! ⭐",
-                "See an issue / hallucination? Open an issue, we'll look into it!",
-                "Have an OpenRouter API key? You can use it!",
-                "Open a discussion on GitHub to suggest changes or new features!",
-                "We are looking for expert help to improve the application! Contributions are welcome."
-            ],
+            // i18n keys (texts live in static/i18n.js)
+            tips: ['tips.1', 'tips.2', 'tips.3', 'tips.4', 'tips.5', 'tips.6'],
             intervalId: null
         }
     },

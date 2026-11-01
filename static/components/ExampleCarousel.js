@@ -2,12 +2,12 @@ export default {
     template: `
     <div class="mt-6 mb-2 bg-primary-50 dark:bg-primary-900/20 rounded-xl p-4 border border-primary-100 dark:border-primary-800/50 transition-colors relative overflow-hidden" @mouseenter="pause" @mouseleave="resume">
         <h3 class="text-xs font-bold text-primary-800 dark:text-primary-300 mb-2 uppercase tracking-wider flex items-center gap-2">
-            <i class="fa-solid fa-lightbulb"></i> Ideas / Examples
+            <i class="fa-solid fa-lightbulb"></i> {{ t('examples.title') }}
         </h3>
         
         <div class="h-20 sm:h-16 relative">
             <transition name="slide-fade" mode="out-in">
-                <p :key="currentIndex" @click="selectExample(examples[currentIndex].text)" class="text-sm text-gray-700 dark:text-gray-300 italic absolute inset-0 cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-300" title="Click to use this example">
+                <p :key="currentIndex" @click="selectExample(examples[currentIndex].text)" class="text-sm text-gray-700 dark:text-gray-300 italic absolute inset-0 cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-300" :title="t('examples.use')">
                     "{{ examples[currentIndex].text }}"
                 </p>
             </transition>

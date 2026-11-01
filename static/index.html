@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -65,19 +65,35 @@
         <floating-background></floating-background>
         
         <!-- GitHub Link -->
-        <a href="https://github.com/ANGELUSD11/tutorgebra" target="_blank" rel="noopener noreferrer" class="absolute top-4 left-4 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors focus:outline-none" title="View source on GitHub">
+        <a href="https://github.com/ANGELUSD11/tutorgebra" target="_blank" rel="noopener noreferrer" class="absolute top-4 left-4 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors focus:outline-none" :title="t('header.github')" :aria-label="t('header.github')">
             <i class="fa-brands fa-github text-2xl"></i>
         </a>
 
+        <!-- API Key (opens the API key modal) -->
+        <button @click="showApiKeyModal = true" :class="apiKey ? 'text-primary-500 dark:text-primary-400' : 'text-gray-400'" class="absolute top-14 right-4 w-6 flex justify-center sm:w-auto sm:top-4 sm:right-14 hover:text-primary-600 dark:hover:text-primary-400 transition-colors focus:outline-none" :title="t('header.apiKey')" aria-label="API Key">
+            <span class="relative inline-block">
+                <i class="fa-solid fa-key text-lg sm:text-2xl"></i>
+                <span v-if="apiKey" class="absolute -top-0.5 -right-1 w-2.5 h-2.5 rounded-full bg-green-500 ring-2 ring-gray-50 dark:ring-gray-900"></span>
+            </span>
+        </button>
+
+        <!-- Language switcher (always starts in English) -->
+        <div role="group" :aria-label="t('header.language')" :title="t('header.language')"
+             class="absolute top-[5.75rem] right-4 sm:top-5 sm:right-24 flex items-center rounded-full border border-gray-300 dark:border-gray-600 overflow-hidden text-[10px] sm:text-xs font-bold leading-none">
+            <button v-for="code in LANGS" :key="code" @click="setLang(code)" :aria-pressed="lang === code"
+                    :class="lang === code ? 'bg-primary-600 text-white' : 'text-gray-400 hover:text-primary-600 dark:hover:text-primary-400'"
+                    class="px-1.5 py-1 sm:px-2 sm:py-1.5 uppercase transition-colors focus:outline-none">{{ code }}</button>
+        </div>
+
         <!-- Dark Mode Toggle -->
-        <button @click="toggleDarkMode" class="absolute top-4 right-4 text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors focus:outline-none">
+        <button @click="toggleDarkMode" class="absolute top-4 right-4 text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors focus:outline-none" :title="t('header.theme')" :aria-label="t('header.theme')">
             <i class="fa-solid fa-moon text-2xl" v-if="!isDark"></i>
             <i class="fa-solid fa-sun text-2xl" v-else></i>
         </button>
 
-        <div class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-primary-600 dark:text-primary-400 mb-2"><i class="fa-solid fa-shapes mr-2"></i>TutorGebra AI</h1>
-            <p class="text-gray-500 dark:text-gray-400">Your automated interactive geometry tutor.</p>
+        <div class="text-center mb-8 px-10 sm:px-0">
+            <h1 class="text-3xl sm:text-4xl font-bold text-primary-600 dark:text-primary-400 mb-2 whitespace-nowrap"><i class="fa-solid fa-shapes mr-2"></i>TutorGebra AI</h1>
+            <p class="text-gray-500 dark:text-gray-400 px-6 sm:px-0">{{ t('header.subtitle') }}</p>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -86,48 +102,31 @@
                 <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-100 dark:border-gray-700 transition-colors duration-200">
                     <div class="mb-4">
                         <div class="flex justify-between items-center mb-2">
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300">OpenRouter API Key (Optional)</label>
-                            <button @click="showApiKeyModal = true" class="text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 text-sm font-medium transition-colors flex items-center gap-1">
-                                <i class="fa-solid fa-circle-question"></i> How to get it?
-                            </button>
-                        </div>
-                        <div class="relative">
-                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <i class="fa-solid fa-key text-gray-400 dark:text-gray-500"></i>
-                            </div>
-                            <input type="password" v-model="apiKey" placeholder="Leave blank to use Server's free key" 
-                                   class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors">
-                        </div>
-                        <p class="text-xs text-green-600 dark:text-green-400 mt-2 flex items-center gap-1 font-medium"><i class="fa-solid fa-server"></i> Uses server key by default. Enter your own for private quotas.</p>
-                    </div>
-
-                    <div class="mb-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300">What do you want to calculate or draw?</label>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300">{{ t('prompt.label') }}</label>
                             <span :class="{'text-red-500 font-bold': ((prompt?.length || 0) > MAX_PROMPT_CHARS), 'text-gray-400 dark:text-gray-500': ((prompt?.length || 0) <= MAX_PROMPT_CHARS)}" class="text-xs transition-colors">
                                 {{ (prompt?.length || 0) }} / {{ MAX_PROMPT_CHARS }}
                             </span>
                         </div>
-                        <textarea ref="promptBox" v-model="prompt" rows="3" placeholder="Ex: Draw a right triangle and its circumscribed circle." 
+                        <textarea ref="promptBox" v-model="prompt" rows="3" :placeholder="t('prompt.placeholder')" 
                                   :class="{'border-red-500 dark:border-red-500 focus:ring-red-500 focus:border-red-500': ((prompt?.length || 0) > MAX_PROMPT_CHARS), 'border-gray-300 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500': ((prompt?.length || 0) <= MAX_PROMPT_CHARS)}"
                                   class="w-full p-3 rounded-lg border dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 focus:ring-2 transition-colors resize-none overflow-y-hidden max-h-80"></textarea>
                         
                         <p v-if="((prompt?.length || 0) > MAX_PROMPT_CHARS)" class="text-xs text-red-500 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
-                            <i class="fa-solid fa-circle-exclamation"></i> You have exceeded the maximum limit of {{ MAX_PROMPT_CHARS }} characters. Please shorten your text to continue.
+                            <i class="fa-solid fa-circle-exclamation"></i> {{ t('prompt.overLimit', { n: MAX_PROMPT_CHARS }) }}
                         </p>
                         
-                        <example-carousel @select="(t) => prompt = t"></example-carousel>
+                        <example-carousel @select="(text) => prompt = text"></example-carousel>
                         
                         <div class="mt-3">
                             <label class="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 transition-colors">
-                                <i class="fa-solid fa-image"></i> Attach image (optional)
+                                <i class="fa-solid fa-image"></i> {{ t('image.attach') }}
                                 <input type="file" @change="handleImageUpload" accept="image/*" class="hidden">
                             </label>
                             
                             <div v-if="imagePreview" class="block mt-3">
                                 <div class="relative inline-block">
                                     <img :src="imagePreview" class="h-24 w-auto rounded-lg border-2 border-primary-200 dark:border-primary-800 shadow-md object-cover transition-all hover:shadow-lg">
-                                    <button @click="removeImage" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors shadow-md z-10" title="Remove image">
+                                    <button @click="removeImage" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors shadow-md z-10" :title="t('image.remove')">
                                         <i class="fa-solid fa-xmark text-sm"></i>
                                     </button>
                                 </div>
@@ -137,9 +136,9 @@
                     
                     <div class="mb-6">
                         <div class="flex justify-between items-center mb-2">
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300">Teacher Voice</label>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300">{{ t('voice.label') }}</label>
                             <button @click="toggleEdgeTts" type="button" class="text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 text-xs font-medium transition-colors flex items-center gap-1">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> {{ useEdgeTts ? 'Basic Voices (gTTS)' : 'More Voices (edgeTTS)' }}
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> {{ useEdgeTts ? t('voice.basic') : t('voice.more') }}
                             </button>
                         </div>
                         
@@ -149,7 +148,7 @@
                     </div>
 
                     <div class="mb-6">
-                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">AI Model</label>
+                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ t('model.label') }}</label>
                         <custom-select v-model="selectedModel" :options="modelOptions"></custom-select>
                     </div>
 
@@ -157,12 +156,12 @@
                             class="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                         <i v-if="loading" class="fa-solid fa-circle-notch fa-spin"></i>
                         <i v-else class="fa-solid fa-chalkboard-user"></i>
-                        {{ loading ? 'Generating lesson...' : 'Generate Lesson' }}
+                        {{ loading ? t('generate.busy') : t('generate.idle') }}
                     </button>
                     
                     <div v-if="loading" class="mt-4">
                         <div class="flex justify-between mb-1">
-                            <span class="text-xs font-medium text-primary-700 dark:text-primary-400">{{ loadingMessage }}</span>
+                            <span class="text-xs font-medium text-primary-700 dark:text-primary-400">{{ progressText }}</span>
                             <span class="text-xs font-medium text-primary-700 dark:text-primary-400">{{ loadingPercent }}%</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700 overflow-hidden">
@@ -175,7 +174,7 @@
                     <!-- Meta Information Badge -->
                     <div v-if="meta.model" class="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-lg text-xs font-medium border border-blue-200 dark:border-blue-800 flex justify-between items-center transition-all">
                         <span class="flex items-center gap-2">
-                            <i class="fa-solid fa-microchip"></i> Model: {{ meta.model }}
+                            <i class="fa-solid fa-microchip"></i> {{ t('model.badge') }}: {{ meta.model }}
                         </span>
                         <span class="px-2 py-1 bg-blue-200 dark:bg-blue-800 rounded-full text-[10px] uppercase tracking-wider">
                             <i class="fa-solid fa-layer-group"></i> {{ meta.difficulty }}
@@ -187,15 +186,15 @@
 
                 <!-- Lesson Player Controls -->
                 <div v-if="steps.length > 0" class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-100 dark:border-gray-700">
-                    <h3 class="text-lg font-bold mb-4 border-b dark:border-gray-700 pb-2">Player Controls</h3>
+                    <h3 class="text-lg font-bold mb-4 border-b dark:border-gray-700 pb-2">{{ t('player.title') }}</h3>
                     <div class="flex justify-center gap-4 mb-4">
-                        <button @click="resetLesson" class="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center transition-colors" title="Restart">
+                        <button @click="resetLesson" class="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center transition-colors" :title="t('player.restart')">
                             <i class="fa-solid fa-rotate-left"></i>
                         </button>
                         <button @click="togglePlay" class="w-16 h-16 rounded-full bg-primary-600 hover:bg-primary-700 text-white flex items-center justify-center text-xl shadow-lg transition-transform hover:scale-105">
                             <i :class="isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play ml-1'"></i>
                         </button>
-                        <button @click="nextStep" :disabled="currentStep >= steps.length" class="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center transition-colors disabled:opacity-50" title="Next Step">
+                        <button @click="nextStep" :disabled="currentStep >= steps.length" class="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center transition-colors disabled:opacity-50" :title="t('player.next')">
                             <i class="fa-solid fa-forward-step"></i>
                         </button>
                     </div>
@@ -235,9 +234,9 @@
                     <!-- Header Bar for Applet -->
                     <div class="h-12 bg-gray-100/80 dark:bg-gray-800/80 backdrop-blur border-b border-gray-200 dark:border-gray-700 flex justify-between items-center px-4 shrink-0 transition-colors">
                         <span class="text-sm font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-2">
-                            <i class="fa-solid fa-shapes text-primary-500"></i> Interactive Board
+                            <i class="fa-solid fa-shapes text-primary-500"></i> {{ t('board.title') }}
                         </span>
-                        <button @click="toggleFullscreen" class="text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 transition-all duration-200 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 active:scale-95" title="Fullscreen">
+                        <button @click="toggleFullscreen" class="text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 transition-all duration-200 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 active:scale-95" :title="t('board.fullscreen')">
                             <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
                         </button>
                     </div>
@@ -245,7 +244,7 @@
                     <div v-if="!appletLoaded" class="absolute inset-0 top-12 flex items-center justify-center bg-gray-50/90 dark:bg-gray-900/90 backdrop-blur-sm z-10 transition-opacity duration-300">
                         <div class="text-center text-gray-500">
                             <i class="fa-solid fa-shapes text-5xl mb-4 opacity-50 animate-pulse"></i>
-                            <p class="animate-pulse">Enter your query to load the engine.</p>
+                            <p class="animate-pulse">{{ t('board.empty') }}</p>
                         </div>
                     </div>
                     
@@ -267,43 +266,58 @@
 
         <!-- Footer -->
         <div class="mt-8 text-center text-sm text-gray-500 dark:text-gray-400 transition-colors duration-200">
-            <p>Created by <a href="https://www.angelus11.dev/" target="_blank" class="text-primary-600 dark:text-primary-400 hover:underline font-semibold">ANGELUS11</a>. Non-profit, MIT License.</p>
+            <p>{{ t('footer.createdBy') }} <a href="https://www.angelus11.dev/" target="_blank" class="text-primary-600 dark:text-primary-400 hover:underline font-semibold">ANGELUS11</a>. {{ t('footer.license') }}</p>
         </div>
 
         <!-- API Key Modal -->
         <transition name="modal">
-            <div v-if="showApiKeyModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
-                <div class="modal-box bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 border border-gray-100 dark:border-gray-700 relative">
-                    <button @click="showApiKeyModal = false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <div v-if="showApiKeyModal" @click.self="showApiKeyModal = false" class="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+                <div class="modal-box bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 border border-gray-100 dark:border-gray-700 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                    <button @click="showApiKeyModal = false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" :aria-label="t('modal.close')">
                         <i class="fa-solid fa-xmark text-xl"></i>
                     </button>
-                    <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
-                        <i class="fa-solid fa-key text-primary-500"></i> What is the API Key?
+                    <h2 class="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 flex flex-wrap items-center gap-x-2 pr-8">
+                        <i class="fa-solid fa-key text-primary-500"></i><span class="whitespace-nowrap">{{ t('modal.title') }}</span>
+                        <span class="text-sm font-medium text-gray-400 dark:text-gray-500">{{ t('modal.optional') }}</span>
                     </h2>
-                    <p class="text-gray-600 dark:text-gray-300 text-sm mb-4">
-                        TutorGebra needs a "brain" to read your exercises and convert them into geometric code. We use <strong>OpenRouter</strong> to route your requests to the best free AI models available (like Gemini). If the server key is exhausted, you can use your own personal key.
-                    </p>
+                    <div class="mb-5">
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fa-solid fa-key text-gray-400 dark:text-gray-500"></i>
+                            </div>
+                            <input type="password" v-model="apiKey" :placeholder="t('modal.placeholder')" autocomplete="off"
+                                   class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors">
+                        </div>
+                        <div class="flex justify-between items-start gap-3 mt-2">
+                            <p class="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 font-medium"><i class="fa-solid fa-server"></i> {{ t('modal.serverNote') }}</p>
+                            <button v-if="apiKey" @click="apiKey = ''" class="text-xs font-medium text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 whitespace-nowrap transition-colors">
+                                <i class="fa-solid fa-xmark"></i> {{ t('modal.clear') }}
+                            </button>
+                        </div>
+                    </div>
+                    <!-- v-html: static, trusted strings from static/i18n.js -->
+                    <p class="text-gray-600 dark:text-gray-300 text-sm mb-4" v-html="t('modal.intro')"></p>
                     <div class="flex items-start gap-3 bg-green-50 dark:bg-green-900/20 p-3 rounded-lg mb-4 border border-green-200 dark:border-green-800/30">
                         <i class="fa-solid fa-shield-halved text-green-600 dark:text-green-400 mt-0.5"></i>
-                        <p class="text-xs text-green-700 dark:text-green-300"><strong>100% Secure:</strong> Your API key acts as a direct bridge between you and OpenRouter. We never log, collect, or store your key on our servers.</p>
+                        <p class="text-xs text-green-700 dark:text-green-300" v-html="t('modal.secure')"></p>
                     </div>
                     <div class="bg-primary-50 dark:bg-primary-900/30 rounded-lg p-4 mb-6 border border-primary-100 dark:border-primary-800/50">
-                        <h3 class="font-bold text-primary-800 dark:text-primary-300 mb-2 text-sm">Steps to get your key (It's free!):</h3>
+                        <h3 class="font-bold text-primary-800 dark:text-primary-300 mb-2 text-sm">{{ t('modal.stepsTitle') }}</h3>
                         <ol class="list-decimal list-inside text-sm text-gray-700 dark:text-gray-300 space-y-2">
-                            <li>Go to <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline font-semibold">OpenRouter.ai</a>.</li>
-                            <li>Log in with your Google or GitHub account.</li>
-                            <li>Click the <strong>"Create Key"</strong> button.</li>
-                            <li>Copy the generated code and paste it into TutorGebra.</li>
+                            <li v-html="t('modal.step1')"></li>
+                            <li>{{ t('modal.step2') }}</li>
+                            <li v-html="t('modal.step3')"></li>
+                            <li>{{ t('modal.step4') }}</li>
                         </ol>
                     </div>
                     <button @click="showApiKeyModal = false" class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 font-semibold py-3 rounded-xl transition-colors">
-                        Got it!
+                        {{ t('modal.done') }}
                     </button>
                 </div>
             </div>
         </transition>
     </div>
 
-    <script type="module" src="/static/app.js?v=11"></script>
+    <script type="module" src="/static/app.js?v=12"></script>
 </body>
 </html>

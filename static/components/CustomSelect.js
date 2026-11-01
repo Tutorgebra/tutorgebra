@@ -82,7 +82,7 @@ export default {
                     }
                 }
             }
-            return 'Select...';
+            return this.t('select.placeholder');
         }
     },
     methods: {
