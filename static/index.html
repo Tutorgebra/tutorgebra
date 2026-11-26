@@ -157,13 +157,23 @@
 
                     <!-- "Explain more": the lesson explains the why of every step (app/prompts/explain.md) -->
                     <div class="mb-6">
-                        <label class="flex items-start gap-3 cursor-pointer select-none">
-                            <input type="checkbox" v-model="explainMore" class="mt-1 w-4 h-4 accent-primary-600 cursor-pointer">
-                            <span>
-                                <span class="block text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                    <i class="fa-solid fa-person-chalkboard text-primary-600 dark:text-primary-400"></i> {{ t('explain.label') }}
-                                </span>
-                                <span class="block text-xs text-gray-500 dark:text-gray-400 mt-1">{{ t('explain.hint') }}</span>
+                        <!-- A card with a switch; the real checkbox is visually hidden but keeps keyboard and screen reader support -->
+                        <label :class="['flex items-start gap-3 p-3 rounded-xl border cursor-pointer select-none transition-colors duration-200',
+                                        explainMore ? 'border-primary-300 bg-primary-50 dark:border-primary-600 dark:bg-primary-900/30'
+                                                    : 'border-gray-200 bg-white hover:border-primary-200 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-primary-700 dark:hover:bg-gray-700/40']">
+                            <span :class="['shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-200',
+                                           explainMore ? 'bg-primary-600 text-white' : 'bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400']">
+                                <i class="fa-solid fa-person-chalkboard"></i>
+                            </span>
+                            <span class="flex-1 min-w-0">
+                                <span class="block text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('explain.label') }}</span>
+                                <span class="block text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{{ t('explain.hint') }}</span>
+                            </span>
+                            <input type="checkbox" v-model="explainMore" class="peer sr-only">
+                            <span aria-hidden="true" :class="['relative shrink-0 mt-1.5 w-10 h-6 rounded-full transition-colors duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500 peer-focus-visible:ring-offset-2 dark:peer-focus-visible:ring-offset-gray-800',
+                                                              explainMore ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600']">
+                                <span :class="['absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200',
+                                               explainMore ? 'translate-x-4' : 'translate-x-0']"></span>
                             </span>
                         </label>
                     </div>
@@ -221,6 +231,14 @@
                         <button @click="nextStep" :disabled="currentStep >= steps.length" class="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center transition-colors disabled:opacity-50" :title="t('player.next')">
                             <i class="fa-solid fa-forward-step"></i>
                         </button>
+                    </div>
+
+                    <!-- A finished lesson can be downloaded as a standalone page (static/lesson_export.js) -->
+                    <div class="mb-4">
+                        <button @click="downloadLesson" :disabled="!lessonFinished || downloading" class="w-full py-2.5 px-4 rounded-xl border border-primary-200 dark:border-primary-700 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-primary-100 dark:hover:bg-primary-900/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary-50 dark:disabled:hover:bg-primary-900/30">
+                            <i :class="downloading ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-download'"></i> {{ t('download.button') }}
+                        </button>
+                        <p v-if="!lessonFinished" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 text-center">{{ t('download.notReady') }}</p>
                     </div>
 
                     <!-- Volume Control -->
@@ -342,6 +360,6 @@
         </transition>
     </div>
 
-    <script type="module" src="/static/app.js?v=22"></script>
+    <script type="module" src="/static/app.js?v=23"></script>
 </body>
 </html>
