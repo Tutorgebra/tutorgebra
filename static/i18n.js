@@ -96,7 +96,6 @@ const messages = {
         'board.empty': 'Enter your query to load the engine.',
 
         'footer.createdBy': 'Created by',
-        'footer.license': 'Non-profit, MIT License.',
 
         'select.placeholder': 'Select...',
         'examples.title': 'Ideas / Examples',
@@ -227,7 +226,6 @@ const messages = {
         'board.empty': 'Escribe tu consulta para cargar el motor.',
 
         'footer.createdBy': 'Creado por',
-        'footer.license': 'Sin fines de lucro, licencia MIT.',
 
         'select.placeholder': 'Seleccionar...',
         'examples.title': 'Ideas / Ejemplos',
