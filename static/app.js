@@ -4,8 +4,9 @@ import ExampleCarousel from './components/ExampleCarousel.js?v=12';
 import CustomSelect from './components/CustomSelect.js?v=12';
 import MiniAlert from './components/MiniAlert.js?v=12';
 import Errors from './components/Errors.js?v=13';
-import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=17';
+import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=18';
 import { evaluateLesson, prepareCommand } from './ggb_evaluate.js?v=4';
+import { buildLessonPage, lessonFileName, readBoard, saveFile } from './lesson_export.js?v=1';
 
 const { createApp, ref, computed, watch, nextTick } = window.Vue;
 
@@ -110,6 +111,9 @@ const app = createApp({
             return issues.length ? t('provider.warning', { reasons: issues.map(providerReason).join('; ') }) : '';
         });
         const sessionId = ref(null);
+        // The exercise as it was sent (the student may edit the text box afterwards), for the downloaded lesson
+        const lessonSource = ref(null);
+        const downloading = ref(false);
         
         const appletLoaded = ref(false);
         const isPlaying = ref(false);
@@ -323,6 +327,8 @@ const app = createApp({
             steps.value = [];
             meta.value = {};
             sessionId.value = null;
+            lessonSource.value = null;
+            const source = { prompt: prompt.value, image: imageBase64.value };
             pauseLesson();
             currentStep.value = 0;
             
@@ -374,6 +380,7 @@ const app = createApp({
                     completedSuccessfully = true;
                     steps.value = data.steps;
                     sessionId.value = data.session_id;
+                    lessonSource.value = { ...source, date: new Date() };
                     if (data.meta) meta.value = data.meta;
                     // Check if GeoGebra finished loading
                     const checkAndPlay = setInterval(() => {
@@ -530,6 +537,35 @@ const app = createApp({
             if (ggbAppletInstance) ggbAppletInstance.reset();
         };
 
+        // The lesson has played (or been stepped) to its last step, so the board holds the whole construction
+        const lessonFinished = computed(() => steps.value.length > 0 && currentStep.value >= steps.value.length
+            && !isPlaying.value && !loading.value);
+
+        // A standalone page with the exercise, the board and every step, to read it again later (static/lesson_export.js)
+        const downloadLesson = async () => {
+            if (!lessonFinished.value || !ggbAppletInstance || !lessonSource.value || downloading.value) return;
+            downloading.value = true;
+            try {
+                const board = await readBoard(ggbAppletInstance);
+                const source = lessonSource.value;
+                const page = buildLessonPage({
+                    ...source,
+                    ...board,
+                    model: meta.value.model,
+                    checksFailed: !!(meta.value.failed_checks && meta.value.failed_checks.length),
+                    steps: steps.value,
+                    commands: steps.value.map((step) => prepareCommand(step.command)),
+                    lang: lang.value
+                }, t);
+                saveFile(lessonFileName(source.prompt, source.date, t('export.fileFallback')), page);
+            } catch (err) {
+                console.error('Could not create the lesson file', err);
+                error.value = t('download.failed');
+            } finally {
+                downloading.value = false;
+            }
+        };
+
         const nextStep = () => {
             pauseLesson();
             if (currentStep.value < steps.value.length) {
@@ -547,6 +583,7 @@ const app = createApp({
             MAX_PROMPT_CHARS, isPromptOverLimit, canGenerate,
             loading, loadingMessage, loadingPercent, error, steps, meta, startTutor,
             appletLoaded, isPlaying, currentStep, togglePlay, resetLesson, nextStep,
+            lessonFinished, downloading, downloadLesson,
             isFullscreen, toggleFullscreen, currentTypedText, volume,
             progressText, lang, LANGS, setLang, providerWarning
         };
