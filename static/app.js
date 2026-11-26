@@ -4,7 +4,7 @@ import ExampleCarousel from './components/ExampleCarousel.js?v=12';
 import CustomSelect from './components/CustomSelect.js?v=12';
 import MiniAlert from './components/MiniAlert.js?v=12';
 import Errors from './components/Errors.js?v=13';
-import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=15';
+import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=16';
 import { evaluateLesson, prepareCommand } from './ggb_evaluate.js?v=4';
 
 const { createApp, ref, computed, watch, nextTick } = window.Vue;
@@ -36,7 +36,7 @@ const app = createApp({
         const ttsVoice = ref('auto');
         const edgeVoice = ref('es-MX-JorgeNeural');
         const useEdgeTts = ref(false);
-        const selectedModel = ref('openai/gpt-4o');
+        const selectedModel = ref('auto'); // Auto: formula exercises to GPT-4o, reasoning ones to Claude Sonnet 5.5
         
         // Option labels are computed so they follow the UI language; voice and model names stay as-is.
         const gttsOptions = computed(() => [
@@ -71,7 +71,7 @@ const app = createApp({
             { value: 'auto', label: t('model.auto') },
             { value: 'openai/gpt-4o', label: `GPT-4o (${t('model.advanced')})` },
             { value: 'openai/gpt-4o-mini', label: `GPT-4o-mini (${t('model.basic')})` },
-            { value: 'anthropic/claude-sonnet-5.5', label: 'Claude 3.5 Sonnet' }
+            { value: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5' }
         ]);
 
         const toggleEdgeTts = () => { useEdgeTts.value = !useEdgeTts.value; };

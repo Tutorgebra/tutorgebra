@@ -49,92 +49,118 @@ def sanitize_geogebra_command(cmd: str) -> str:
     return cmd
 
 
-def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = None, selected_model: str = "auto") -> dict:
+# --- Routing: which model solves the exercise ---------------------------------------------------------
+# Auto mode classifies the exercise with a cheap gpt-4o-mini call (which also reads the photo, if any):
+# formula exercises go to gpt-4o; reasoning exercises, where gpt-4o kept choosing a wrong method (line
+# balancing, optimization, scheduling...), go straight to Claude Sonnet 5.5, which reasons before answering.
+# Each list is an OpenRouter fallback list: the second model answers if the first one's provider fails.
+FORMULA_MODELS = ['openai/gpt-4o', 'anthropic/claude-sonnet-5.5']
+REASONING_MODELS = ['anthropic/claude-sonnet-5.5', 'openai/gpt-4o']
+CLASSIFIER_MODEL = 'openai/gpt-4o-mini'
+
+CLASSIFIER_PROMPT = """You classify math exercises for a tutor. Read the user's request (and the image, if any).
+1. If there is an image, copy all its text and math into "extracted_text"; otherwise leave it "".
+2. Decide the kind of exercise:
+- "formula": the answer comes from putting the given data into known formulas, step by step, with no decision to make. Examples: EOQ, OEE, break-even point, compound interest, standard time, productivity, learning curve, queue formulas, areas, perimeters and volumes, statistics of a data list (mean, median, deviation), derivatives and integrals of a given function, unit conversions, drawing a given figure or graph.
+- "reasoning": the solution requires deciding, grouping, ordering, searching or optimizing, or it must satisfy conditions that have to be checked. Examples: line balancing (grouping tasks into stations), linear programming or any optimization with constraints, sequencing and scheduling (Johnson's rule), assignment, critical path (CPM/PERT), period-by-period calculations (forecasts, loan balances, inventory month by month), proofs, word problems with several conditions to combine.
+When in doubt, choose "reasoning".
+Return EXACTLY this JSON: {"extracted_text": "...", "kind": "formula" | "reasoning"}"""
+
+
+def _openrouter_client(api_key: str = ""):
     final_api_key = api_key.strip() if api_key else os.environ.get("OPENROUTER_API_KEY")
     if not final_api_key:
         raise ValueError("OpenRouter API Key is missing. Please provide one in the UI or configure the server with OPENROUTER_API_KEY.")
-        
-    client = OpenRouter(api_key=final_api_key)
+    return OpenRouter(api_key=final_api_key)
 
-    # Text used to pick the topic modules of the system prompt. A photo without extracted text has
-    # unknown content, so None makes build_system_prompt include every module.
-    topic_text = None if image_b64 else prompt
 
-    logger.info(f"Sending prompt to OpenRouter: {prompt}")
-    
+def _user_content(prompt: str, image_b64: str = None) -> list:
     user_content = [{"type": "text", "text": prompt}]
     if image_b64:
-        user_content.append({
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/jpeg;base64,{image_b64}"
-            }
-        })
+        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}})
         logger.info("Included image in the prompt")
-        
-    target_models = ['openai/gpt-4o-mini']
-    difficulty = "manual"
-    # Problems the model provider had along the way (app/provider.py codes); the UI tells the user about them
-    provider_issues = []
+    return user_content
 
+
+def _json_object(content: str) -> dict:
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+    if match:
+        return json.loads(match.group(1))
+    start, end = content.find('{'), content.rfind('}')
+    return json.loads(content[start:end + 1] if start != -1 and end != -1 else content)
+
+
+def route_exercise(prompt: str, api_key: str = "", image_b64: str = None, selected_model: str = "auto") -> dict:
+    """Which models solve the exercise and with which content. 'kind' is "formula", "reasoning" (Auto mode)
+    or "manual" (a model chosen by the user, used as it is). Separate from the generation so the router can
+    tell the student, before the long wait, that a reasoning exercise goes to Claude Sonnet."""
+    routing = {
+        "kind": "manual",
+        "target_models": [selected_model],
+        "user_content": _user_content(prompt, image_b64),
+        # Text used to pick the topic modules of the system prompt. A photo without extracted text has unknown
+        # content, so None makes build_system_prompt include every module.
+        "topic_text": None if image_b64 else prompt,
+        "provider_issues": [],
+    }
     if selected_model != "auto":
         logger.info(f"User manually selected model: {selected_model}. Bypassing Smart Routing.")
-        target_models = [selected_model]
-    else:
-        try:
-            logger.info("Performing preliminary Difficulty Classification with gpt-4o-mini...")
-            ocr_messages = [
-                {
-                    "role": "system",
-                    "content": "You are a Math Classifier. Read the prompt (and image if any). 1. If there's an image, extract all text/math. 2. Classify difficulty. If it's university-level (physics, advanced calculus, abstract algebra, PDEs, etc.), requires complex spatial reasoning, or involves Analytical Geometry (ellipses, parabolas, conics), output 'advanced'. If basic arithmetic or simple elementary school shapes, output 'basic'. Return EXACTLY JSON: {\"extracted_text\": \"...\", \"difficulty\": \"basic\" | \"advanced\"}"
-                },
-                {"role": "user", "content": user_content}
-            ]
-            
-            ocr_resp = client.chat.send(
-                models=['openai/gpt-4o-mini'],
-                messages=ocr_messages,
-                response_format={'type': 'json_object'},
-                temperature=0.1,
-                max_tokens=1000
-            )
-            
-            ocr_content = ocr_resp.choices[0].message.content
-            match_ocr = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', ocr_content, re.DOTALL)
-            if match_ocr:
-                clean_ocr = match_ocr.group(1).strip()
-            else:
-                start_ocr = ocr_content.find('{')
-                end_ocr = ocr_content.rfind('}')
-                if start_ocr != -1 and end_ocr != -1:
-                    clean_ocr = ocr_content[start_ocr:end_ocr+1].strip()
-                else:
-                    clean_ocr = ocr_content.strip()
-        
-            ocr_data = json.loads(clean_ocr)
-            difficulty = ocr_data.get("difficulty", "basic").lower()
-            extracted = ocr_data.get("extracted_text", "")
-            if extracted:
-                topic_text = f"{prompt}\n{extracted}"
+        return routing
 
-            logger.info(f"Problem classified as: {difficulty}")
-            
-            if difficulty == "advanced":
-                logger.info("Advanced problem detected! Routing to powerful models (GPT-4o / Sonnet 5.5).")
-                if image_b64:
-                    logger.info("Stripping image to save Vision costs and using extracted text.")
-                    user_content = [
-                        {"type": "text", "text": f"User Request: {prompt}\n\n[Extracted Mathematical Content from User's Image]:\n{extracted}\n\n(CRITICAL: Solve this advanced problem step-by-step, but you MUST provide all 'speech' explanations in the EXACT SAME LANGUAGE as the User Request above)."}
-                    ]
-                target_models = ['openai/gpt-4o', 'anthropic/claude-sonnet-5.5', 'openai/gpt-4o-mini']
-            else:
-                logger.info("Basic problem detected. Proceeding with gpt-4o-mini to save costs.")
-                
-        except Exception as e:
-            logger.warning(f"Smart Routing failed, falling back to standard pipeline: {e}")
-            if is_provider_error(e):
-                provider_issues.append(classify_provider_error(e))
-            target_models = ['openai/gpt-4o', 'anthropic/claude-sonnet-5.5', 'openai/gpt-4o-mini']
+    client = _openrouter_client(api_key)
+    try:
+        logger.info(f"Classifying the exercise (formula or reasoning) with {CLASSIFIER_MODEL}...")
+        response = client.chat.send(
+            models=[CLASSIFIER_MODEL],
+            messages=[{"role": "system", "content": CLASSIFIER_PROMPT}, {"role": "user", "content": routing["user_content"]}],
+            response_format={'type': 'json_object'},
+            temperature=0.1,
+            max_tokens=1000,
+        )
+        log_usage("Classifier", response)
+        parsed = _json_object(response.choices[0].message.content or "")
+        kind = str(parsed.get("kind", "reasoning")).strip().lower()
+        kind = kind if kind in ("formula", "reasoning") else "reasoning"
+        extracted = parsed.get("extracted_text") or ""
+    except Exception as e:
+        # Unsure about the kind: the reasoning route is the safe one
+        logger.warning(f"Exercise classification failed, solving it as a reasoning exercise: {e}")
+        if is_provider_error(e):
+            routing["provider_issues"].append(classify_provider_error(e))
+        kind, extracted = "reasoning", ""
+
+    routing["kind"] = kind
+    if extracted:
+        routing["topic_text"] = f"{prompt}\n{extracted}"
+    if kind == "formula":
+        routing["target_models"] = list(FORMULA_MODELS)
+        logger.info("Formula exercise: solving it with GPT-4o.")
+    else:
+        routing["target_models"] = list(REASONING_MODELS)
+        logger.info("Reasoning exercise: solving it with Claude Sonnet 5.5.")
+        if image_b64 and extracted:
+            logger.info("Stripping image to save Vision costs and using extracted text.")
+            routing["user_content"] = [{"type": "text", "text": (
+                f"User Request: {prompt}\n\n[Extracted Mathematical Content from User's Image]:\n{extracted}\n\n"
+                "(CRITICAL: Solve this problem step-by-step, but you MUST provide all 'speech' explanations in the "
+                "EXACT SAME LANGUAGE as the User Request above).")}]
+    return routing
+
+
+def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = None, selected_model: str = "auto",
+                             routing: dict = None) -> dict:
+    """The lesson for an exercise. routing comes from route_exercise (the router computes it first so it can
+    warn the student about slow reasoning exercises); it is computed here when not given."""
+    client = _openrouter_client(api_key)
+    logger.info(f"Sending prompt to OpenRouter: {prompt}")
+    if routing is None:
+        routing = route_exercise(prompt, api_key, image_b64, selected_model)
+    target_models = list(routing["target_models"])
+    user_content = routing["user_content"]
+    topic_text = routing["topic_text"]
+    difficulty = routing["kind"]
+    # Problems the model provider had along the way (app/provider.py codes); the UI tells the user about them
+    provider_issues = list(routing["provider_issues"])
 
     system_prompt, prompt_modules = build_system_prompt(topic_text)
     logger.info(
@@ -242,19 +268,11 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON Parsing Error on attempt {attempt + 1}: {e}")
-            if selected_model == "auto":
-                if attempt == 0:
-                    logger.info("Attempt 1 failed. Forcing fallback to gpt-4o for the next attempt...")
-                    target_models = ['openai/gpt-4o']
-                    continue
-                elif attempt == 1:
-                    logger.info("Attempt 2 failed. Forcing fallback to gpt-4o-mini for the final attempt...")
-                    target_models = ['openai/gpt-4o-mini']
-                    continue
-            else:
-                if attempt < max_retries - 1:
-                    logger.info(f"Attempt {attempt + 1} failed. Retrying with manually selected model {selected_model}...")
-                    continue
+            # Retried with the same models: in Auto mode their list already falls back to the other model
+            # when a provider fails, and gpt-4o-mini no longer writes lessons
+            if attempt < max_retries - 1:
+                logger.info(f"Attempt {attempt + 1} failed. Retrying with {target_models}...")
+                continue
             if candidates:
                 break  # deliver the best earlier lesson
 
@@ -268,16 +286,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
             if provider_code:
                 provider_issues.append(provider_code)
                 logger.error(f"Attempt {attempt + 1}: provider error '{provider_code}' ({type(e).__name__})")
-            if selected_model == "auto":
-                if attempt == 0:
-                    target_models = ['openai/gpt-4o']
-                    continue
-                elif attempt == 1:
-                    target_models = ['openai/gpt-4o-mini']
-                    continue
-            else:
-                if attempt < max_retries - 1:
-                    continue
+            if attempt < max_retries - 1:
+                continue
             if candidates:
                 break  # deliver the best earlier lesson
             if provider_code:

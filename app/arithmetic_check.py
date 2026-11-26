@@ -2,6 +2,7 @@ import ast
 import math
 import re
 import statistics
+from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 # The model writes the `questions` answers before the steps, computing them in its head, and the
@@ -26,10 +27,21 @@ MAX_EXPONENT = 1000
 RELATIVE_TOLERANCE = 0.002
 
 
+# Decimals kept before rounding: they drop the binary noise of a float (0.3 * 142 + 0.7 * 125.55 is stored as
+# 130.48499999999999, which must round to 130.49 as GeoGebra shows it, not to 130.48)
+_NOISE_DECIMALS = 10
+
+
+def _round_half_up_decimal(value: float, digits: int) -> Decimal:
+    """value rounded to digits decimals the way GeoGebra rounds: halves away from zero, after dropping the
+    binary noise. Python's round() rounds halves to even and keeps the noise (round(130.485, 2) == 130.48)."""
+    cleaned = Decimal(f"{value:.{_NOISE_DECIMALS}f}")
+    return cleaned.quantize(Decimal(1).scaleb(-int(digits)), rounding=ROUND_HALF_UP)
+
+
 def _round_half_up(value, digits=0):
-    # GeoGebra rounds halves away from zero; Python's round() rounds them to even
-    factor = 10 ** int(digits)
-    return math.copysign(math.floor(abs(value) * factor + 0.5) / factor, value)
+    # The round(x) and round(x, n) commands of GeoGebra
+    return float(_round_half_up_decimal(value, digits))
 
 
 _FUNCTIONS = {
@@ -371,8 +383,10 @@ def build_checks_retry_note(failed: list) -> str:
 
 
 def format_value(value: float) -> str:
-    """Two decimals, or four for values below 1 (0.6927 must not become 0.69)."""
-    text = f"{value:.{4 if abs(value) < 1 else 2}f}".rstrip("0").rstrip(".")
+    """Two decimals, or four for values below 1 (0.6927 must not become 0.69), rounded as GeoGebra shows
+    them, so the voice says the same digits the board displays."""
+    rounded = _round_half_up_decimal(value, 4 if abs(value) < 1 else 2)
+    text = format(rounded, "f").rstrip("0").rstrip(".")
     return "0" if text in ("", "-0") else text
 
 

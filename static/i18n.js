@@ -31,7 +31,12 @@ const messages = {
         'voice.female': 'Female',
 
         'model.label': 'AI Model',
-        'model.auto': 'Auto (Smart Routing)',
+        'model.auto': 'Auto (detects formula or reasoning)',
+        'model.autoHint': 'Formula exercises are solved with GPT-4o. Reasoning exercises (line balancing, optimization, scheduling...) go straight to Claude Sonnet 5.5 and may take up to a minute because of their complexity.',
+        'difficulty.formula': 'Formula',
+        'difficulty.reasoning': 'Reasoning',
+        'difficulty.manual': 'Manual',
+        'progress.reasoning': 'Reasoning exercise: it is solved with Claude Sonnet 5.5 and may take up to a minute...',
         'model.advanced': 'Advanced Math & Vision',
         'model.basic': 'Basic Math',
         'model.badge': 'Model',
@@ -128,7 +133,12 @@ const messages = {
         'voice.female': 'Mujer',
 
         'model.label': 'Modelo de IA',
-        'model.auto': 'Auto (enrutamiento inteligente)',
+        'model.auto': 'Auto (detecta fórmula o razonamiento)',
+        'model.autoHint': 'Los ejercicios de fórmula se resuelven con GPT-4o. Los de razonamiento (balanceo de líneas, optimización, secuenciación...) van directo a Claude Sonnet 5.5 y pueden tardar hasta un minuto por su complejidad.',
+        'difficulty.formula': 'Fórmula',
+        'difficulty.reasoning': 'Razonamiento',
+        'difficulty.manual': 'Manual',
+        'progress.reasoning': 'Ejercicio de razonamiento: se resuelve con Claude Sonnet 5.5 y puede tardar hasta un minuto...',
         'model.advanced': 'Matemáticas avanzadas y visión',
         'model.basic': 'Matemáticas básicas',
         'model.badge': 'Modelo',
@@ -219,6 +229,8 @@ export function setLang(code) {
 export function translateProgress(message) {
     if (!message) return '';
     if (message === 'Thinking about the mathematical solution...') return t('progress.thinking');
+    // Sent by app/routers/exercises.py (REASONING_PROGRESS) when Auto routes the exercise to Claude Sonnet
+    if (message === 'Reasoning exercise detected: it is solved with Claude Sonnet 5.5 and may take up to a minute...') return t('progress.reasoning');
     // Set by app.js itself while the lesson runs in GeoGebra before the voice is synthesized
     if (message === 'Checking the values on the board...') return t('progress.evaluating');
     let m = message.match(/^Lesson generated \((\d+) steps\)\. Synthesizing teacher voice\.\.\.$/);

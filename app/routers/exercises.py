@@ -20,7 +20,7 @@ from app.security import (
     MAX_SHORT_FIELD_CHARS,
 )
 from app.redis_rate_limit import check_rate_limit_redis
-from app.agent import generate_geogebra_script, sanitize_geogebra_command
+from app.agent import generate_geogebra_script, route_exercise, sanitize_geogebra_command
 from app.lesson_token import sign_lesson, verify_lesson
 from app.placeholders import placeholder_names, fill_placeholders, replace_unfilled_placeholders
 from app.arithmetic_check import check_names
@@ -39,6 +39,8 @@ router = APIRouter(prefix="/api", tags=["exercises"])
 # its commands in GeoGebra (static/ggb_evaluate.js) and sends the real values to /api/voice, which fills
 # the {name} placeholders of the speeches and synthesizes the audio.
 MAX_FAILED_COMMANDS = 200
+# Progress messages are English; static/i18n.js (translateProgress) translates them
+REASONING_PROGRESS = "Reasoning exercise detected: it is solved with Claude Sonnet 5.5 and may take up to a minute..."
 
 
 def _sse(payload: dict) -> str:
@@ -107,8 +109,12 @@ async def run_exercise(req: Request):
         try:
             yield _sse({'status': 'progress', 'message': 'Thinking about the mathematical solution...', 'percent': 10})
 
-            # The generator is synchronous (OpenRouter calls), so it runs in a thread
-            data = await asyncio.to_thread(generate_geogebra_script, prompt, api_key, image_b64, selected_model)
+            # The generator is synchronous (OpenRouter calls), so it runs in a thread. The routing goes first so
+            # the student is told, before the long wait, that a reasoning exercise goes to Claude Sonnet
+            routing = await asyncio.to_thread(route_exercise, prompt, api_key, image_b64, selected_model)
+            if routing["kind"] == "reasoning":
+                yield _sse({'status': 'progress', 'message': REASONING_PROGRESS, 'percent': 15})
+            data = await asyncio.to_thread(generate_geogebra_script, prompt, api_key, image_b64, selected_model, routing)
             raw_steps = data.get("steps", [])
             if isinstance(raw_steps, dict):
                 raw_steps = [raw_steps]
