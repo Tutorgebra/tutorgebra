@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 import uuid
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,7 +21,7 @@ from app.security import (
     MAX_SHORT_FIELD_CHARS,
 )
 from app.redis_rate_limit import check_rate_limit_redis
-from app.agent import generate_geogebra_script, route_exercise, sanitize_geogebra_command
+from app.agent import GenerationCancelled, generate_geogebra_script, route_exercise, sanitize_geogebra_command
 from app.lesson_token import sign_lesson, verify_lesson
 from app.placeholders import placeholder_names, fill_placeholders, replace_unfilled_placeholders
 from app.arithmetic_check import check_names
@@ -83,6 +84,8 @@ async def run_exercise(req: Request):
     edge_voice = get_str_field(body, "edge_voice", MAX_SHORT_FIELD_CHARS)
     image_b64 = get_str_field(body, "image", MAX_IMAGE_B64_CHARS)
     selected_model = get_str_field(body, "selected_model", MAX_SHORT_FIELD_CHARS) or "auto"
+    # "Explain more" checkbox: only a real true turns it on (it makes the lesson longer and more expensive)
+    explain_more = body.get("explain_more") is True
 
     if not prompt.strip() and not image_b64:
         raise HTTPException(status_code=400, detail="Debes ingresar un ejercicio o adjuntar una imagen.")
@@ -106,6 +109,10 @@ async def run_exercise(req: Request):
         raise HTTPException(status_code=400, detail="Voz no soportada.")
 
     async def event_stream():
+        # Set when the student leaves (or the stream ends): the generator thread then skips its remaining paid
+        # calls (retries, reviewer). Without it, a reloaded page kept a Claude Sonnet lesson going for a minute
+        stop_generation = threading.Event()
+        watcher = asyncio.create_task(_watch_disconnect(req, stop_generation))
         try:
             yield _sse({'status': 'progress', 'message': 'Thinking about the mathematical solution...', 'percent': 10})
 
@@ -114,7 +121,8 @@ async def run_exercise(req: Request):
             routing = await asyncio.to_thread(route_exercise, prompt, api_key, image_b64, selected_model)
             if routing["kind"] == "reasoning":
                 yield _sse({'status': 'progress', 'message': REASONING_PROGRESS, 'percent': 15})
-            data = await asyncio.to_thread(generate_geogebra_script, prompt, api_key, image_b64, selected_model, routing)
+            data = await asyncio.to_thread(generate_geogebra_script, prompt, api_key, image_b64, selected_model, routing,
+                                           explain_more, stop_generation.is_set)
             raw_steps = data.get("steps", [])
             if isinstance(raw_steps, dict):
                 raw_steps = [raw_steps]
@@ -156,6 +164,8 @@ async def run_exercise(req: Request):
                 'names': list(dict.fromkeys(placeholder_names(lesson) + check_names(_with_checks(steps, checks)))),
                 'percent': 30,
             })
+        except GenerationCancelled:
+            logger.info(f"Client {client_ip} disconnected: the rest of the lesson generation was skipped")
         except ProviderError as exc:
             # The model provider failed (no credit, rate limit, timeout, cut answer...): the UI explains the code
             logger.warning(f"Provider error for IP {client_ip}: {exc.code} ({exc})")
@@ -166,8 +176,21 @@ async def run_exercise(req: Request):
             logger.exception(f"Critical error in bot execution for IP {client_ip}")
             if not await req.is_disconnected():
                 yield _sse({'status': 'error', 'detail': 'No se pudo generar la lección. Inténtalo de nuevo en unos minutos.'})
+        finally:
+            # Also reached when the server cancels the stream because the client left
+            stop_generation.set()
+            watcher.cancel()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+async def _watch_disconnect(req: Request, stop: threading.Event, interval: float = 1.0) -> None:
+    """Sets stop as soon as the browser disconnects, while the lesson is generated in a thread."""
+    while not stop.is_set():
+        if await req.is_disconnected():
+            stop.set()
+            return
+        await asyncio.sleep(interval)
 
 
 @router.post("/voice")

@@ -131,17 +131,22 @@ def _read_prompt_file(name: str) -> str:
         return f.read().strip("\n")
 
 
-def build_system_prompt(topic_text: str | None) -> tuple[str, list]:
-    """Assemble core.md + the topic modules that topic_text mentions + output_format.md.
+# Added when the student ticks "Explain more" in the UI, whatever the topic
+EXPLAIN_MODULE = "explain.md"
+
+
+def build_system_prompt(topic_text: str | None, explain: bool = False) -> tuple[str, list]:
+    """Assemble core.md + the topic modules that topic_text mentions + explain.md (when explain is set)
+    + output_format.md.
 
     topic_text=None means the content of the request is unknown (a photo without extracted text).
-    When it is None or no module matches, every module is included.
-    Returns the prompt and the names of the matched modules (empty list = full prompt).
+    When it is None or no module matches, every topic module is included.
+    Returns the prompt and the names of the matched topic modules (empty list = full prompt).
     """
     matched = []
     if topic_text:
         text = _normalize_for_topics(topic_text)
         matched = [name for name, pattern in PROMPT_MODULES if pattern.search(text)]
-    modules = matched or [name for name, _ in PROMPT_MODULES]
+    modules = (matched or [name for name, _ in PROMPT_MODULES]) + ([EXPLAIN_MODULE] if explain else [])
     parts = [_read_prompt_file("core.md")] + [_read_prompt_file(name) for name in modules] + [_read_prompt_file("output_format.md")]
     return "\n\n".join(parts), matched

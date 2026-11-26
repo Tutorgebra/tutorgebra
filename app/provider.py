@@ -11,9 +11,13 @@ REASONING_BUDGET = 3000
 
 
 def completion_limits(models: list, answer_tokens: int, reasoning_budget: int = REASONING_BUDGET) -> dict:
-    """max_tokens (and the reasoning budget, for models that reason) for a chat call."""
+    """max_tokens (and the reasoning budget, for models that reason) for a chat call.
+
+    The reasoning budget is a target, not a cap: Claude Sonnet 5.5 reasoned 3635 tokens on a 3000 budget and
+    the lesson was cut. max_tokens leaves room for half the budget more; only the tokens generated are paid."""
     if any(isinstance(m, str) and m.startswith("anthropic/") for m in models):
-        return {"max_tokens": answer_tokens + reasoning_budget, "reasoning": {"max_tokens": reasoning_budget}}
+        return {"max_tokens": answer_tokens + reasoning_budget + reasoning_budget // 2,
+                "reasoning": {"max_tokens": reasoning_budget}}
     return {"max_tokens": answer_tokens}
 
 

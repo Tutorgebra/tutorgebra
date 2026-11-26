@@ -17,6 +17,19 @@ from app.provider import (
 )
 
 LESSON_MAX_TOKENS = 2500  # output for the lesson itself; models that reason get their own budget on top
+EXPLAIN_LESSON_MAX_TOKENS = 6000  # "Explain more" lessons: 3 to 5 sentences per step plus an opening and a closing step
+# Sent with the exercise when "Explain more" is on. The module alone was not enough: in a 21-step lesson
+# Claude Sonnet kept the one-sentence limit of core.md, which comes first in the system prompt
+EXPLAIN_NOTE = (
+    "(CRITICAL: EXPLAIN MORE MODE IS ON. Follow the section 'Explain More Mode' of the system prompt: the FIRST "
+    "step is a plan with an empty command; every step that applies a formula or a decision has 3 to 5 sentences "
+    "(what we do, why, what each term means, what the result means); the LAST step is a closing with an empty "
+    "command. The one-sentence limit of SPEECH LENGTH does NOT apply, however many steps the lesson has.)"
+)
+
+
+class GenerationCancelled(Exception):
+    """The student left (the browser disconnected): the remaining calls for this lesson are not worth paying for."""
 from app.arithmetic_check import (
     find_unconfirmed_results, build_arithmetic_retry_note, format_value, find_failed_checks, build_checks_retry_note,
 )
@@ -148,24 +161,36 @@ def route_exercise(prompt: str, api_key: str = "", image_b64: str = None, select
 
 
 def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = None, selected_model: str = "auto",
-                             routing: dict = None) -> dict:
+                             routing: dict = None, explain: bool = False, should_stop=None) -> dict:
     """The lesson for an exercise. routing comes from route_exercise (the router computes it first so it can
-    warn the student about slow reasoning exercises); it is computed here when not given."""
+    warn the student about slow reasoning exercises); it is computed here when not given. explain is the
+    "Explain more" option of the UI: the lesson explains the why of every step (app/prompts/explain.md).
+    should_stop() tells whether the student left; then GenerationCancelled is raised before the next paid call
+    (a call already sent cannot be cancelled)."""
+
+    def stop_if_gone(next_call: str) -> None:
+        if should_stop is not None and should_stop():
+            logger.info(f"The student disconnected: {next_call} skipped")
+            raise GenerationCancelled()
+
     client = _openrouter_client(api_key)
     logger.info(f"Sending prompt to OpenRouter: {prompt}")
     if routing is None:
         routing = route_exercise(prompt, api_key, image_b64, selected_model)
     target_models = list(routing["target_models"])
     user_content = routing["user_content"]
+    # The note goes only to the lesson calls; the reviewer gets the exercise alone
+    lesson_content = user_content + ([{"type": "text", "text": EXPLAIN_NOTE}] if explain else [])
     topic_text = routing["topic_text"]
     difficulty = routing["kind"]
     # Problems the model provider had along the way (app/provider.py codes); the UI tells the user about them
     provider_issues = list(routing["provider_issues"])
 
-    system_prompt, prompt_modules = build_system_prompt(topic_text)
+    system_prompt, prompt_modules = build_system_prompt(topic_text, explain)
+    lesson_max_tokens = EXPLAIN_LESSON_MAX_TOKENS if explain else LESSON_MAX_TOKENS
     logger.info(
-        f"System prompt modules: {prompt_modules or 'all (no topic detected or image without extracted text)'} "
-        f"(~{len(system_prompt) // 4} tokens)"
+        f"System prompt modules: {prompt_modules or 'all (no topic detected or image without extracted text)'}"
+        f"{' + explain.md (Explain more)' if explain else ''} (~{len(system_prompt) // 4} tokens)"
     )
 
     max_retries = 3
@@ -174,14 +199,15 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
     # one problem brought back another (a lesson rewritten for a false check dropped its diagram)
     notes, used_notes, candidates = [], set(), []
     for attempt in range(max_retries):
+        stop_if_gone(f"generation attempt {attempt + 1}")
         if attempt >= 1 and not full_prompt_sent:
             # The first attempt may have failed because a topic module was left out: retry with all of them
-            system_prompt, _ = build_system_prompt(None)
+            system_prompt, _ = build_system_prompt(None, explain)
             full_prompt_sent = True
             logger.info(f"Retrying with the full system prompt (~{len(system_prompt) // 4} tokens)")
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content + [{"type": "text", "text": note} for note in notes]},
+            {"role": "user", "content": lesson_content + [{"type": "text", "text": note} for note in notes]},
         ]
         try:
             logger.info(f"Generation attempt {attempt + 1} with target models: {target_models}")
@@ -189,8 +215,9 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                 models=target_models,
                 messages=messages,
                 temperature=0.3,  # lower variance: the prompt's rules and the arithmetic are followed more consistently
-                # 2500 tokens for the lesson, plus a reasoning budget for models that reason (app/provider.py)
-                **completion_limits(target_models, LESSON_MAX_TOKENS),
+                # 2500 tokens for the lesson (6000 with "Explain more"), plus a reasoning budget for models that
+                # reason (app/provider.py)
+                **completion_limits(target_models, lesson_max_tokens),
             )
             #logs helper, to see which model was used in each response
             logger.info(f"OpenRouter successfully routed the request to model: {response.model}")
@@ -252,6 +279,7 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                 if isinstance(step, dict) and "command" in step:
                     step["command"] = sanitize_geogebra_command(step.get("command", ""))
 
+            stop_if_gone("lesson review")
             candidate = _assess_lesson(data, attempt, response.model, client, target_models, user_content)
             candidates.append(candidate)
             if attempt < max_retries - 1:
@@ -263,8 +291,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                     continue
             break
 
-        except ProviderError:
-            raise  # already classified above: the router shows its code to the user
+        except (ProviderError, GenerationCancelled):
+            raise  # a provider error is already classified (the router shows its code); a cancel ends it all
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON Parsing Error on attempt {attempt + 1}: {e}")
@@ -302,6 +330,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
     best = min(candidates, key=_candidate_rank)
     if best is not candidates[-1]:
         logger.info(f"Delivering attempt {best['attempt'] + 1} of {len(candidates)}: it is better than the last one")
+    if not best["reviewed"]:
+        stop_if_gone("lesson review")
     return _finalize_lesson(best, client, target_models, user_content, prompt_modules, difficulty, provider_issues)
 
 

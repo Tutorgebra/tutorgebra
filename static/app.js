@@ -4,7 +4,7 @@ import ExampleCarousel from './components/ExampleCarousel.js?v=12';
 import CustomSelect from './components/CustomSelect.js?v=12';
 import MiniAlert from './components/MiniAlert.js?v=12';
 import Errors from './components/Errors.js?v=13';
-import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=16';
+import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=17';
 import { evaluateLesson, prepareCommand } from './ggb_evaluate.js?v=4';
 
 const { createApp, ref, computed, watch, nextTick } = window.Vue;
@@ -37,6 +37,10 @@ const app = createApp({
         const edgeVoice = ref('es-MX-JorgeNeural');
         const useEdgeTts = ref(false);
         const selectedModel = ref('auto'); // Auto: formula exercises to GPT-4o, reasoning ones to Claude Sonnet 5.5
+        // "Explain more": the lesson explains the why of every step. Remembered per browser; storage may be blocked
+        const readExplainMore = () => { try { return localStorage.getItem('explainMore') === '1'; } catch { return false; } };
+        const explainMore = ref(readExplainMore());
+        watch(explainMore, (on) => { try { localStorage.setItem('explainMore', on ? '1' : '0'); } catch { /* not remembered */ } });
         
         // Option labels are computed so they follow the UI language; voice and model names stay as-is.
         const gttsOptions = computed(() => [
@@ -337,7 +341,8 @@ const app = createApp({
                     voice: useEdgeTts.value ? null : ttsVoice.value,
                     edge_voice: useEdgeTts.value ? edgeVoice.value : null,
                     image: imageBase64.value,
-                    selected_model: selectedModel.value
+                    selected_model: selectedModel.value,
+                    explain_more: explainMore.value
                 }), (data) => {
                     if (data.status === 'evaluate') lesson = data;
                 });
@@ -537,7 +542,7 @@ const app = createApp({
         return { 
             isDark, toggleDarkMode, showApiKeyModal, apiKey, prompt, promptBox, ttsVoice,
             imageBase64, imagePreview, handleImageUpload, removeImage,
-            useEdgeTts, edgeVoice, toggleEdgeTts, selectedModel,
+            useEdgeTts, edgeVoice, toggleEdgeTts, selectedModel, explainMore,
             gttsOptions, edgeTtsOptions, modelOptions,
             MAX_PROMPT_CHARS, isPromptOverLimit, canGenerate,
             loading, loadingMessage, loadingPercent, error, steps, meta, startTutor,

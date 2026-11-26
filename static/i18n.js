@@ -32,6 +32,8 @@ const messages = {
 
         'model.label': 'AI Model',
         'model.auto': 'Auto (detects formula or reasoning)',
+        'explain.label': 'Explain more',
+        'explain.hint': 'Each step explains what is done, why, and what the result means. The lesson will be longer and take a little more time.',
         'model.autoHint': 'Formula exercises are solved with GPT-4o. Reasoning exercises (line balancing, optimization, scheduling...) go straight to Claude Sonnet 5.5 and may take up to a minute because of their complexity.',
         'difficulty.formula': 'Formula',
         'difficulty.reasoning': 'Reasoning',
@@ -134,6 +136,8 @@ const messages = {
 
         'model.label': 'Modelo de IA',
         'model.auto': 'Auto (detecta fórmula o razonamiento)',
+        'explain.label': 'Explica más',
+        'explain.hint': 'Cada paso explica qué se hace, por qué y qué significa el resultado. La lección será más larga y tardará un poco más.',
         'model.autoHint': 'Los ejercicios de fórmula se resuelven con GPT-4o. Los de razonamiento (balanceo de líneas, optimización, secuenciación...) van directo a Claude Sonnet 5.5 y pueden tardar hasta un minuto por su complejidad.',
         'difficulty.formula': 'Fórmula',
         'difficulty.reasoning': 'Razonamiento',
