@@ -24,6 +24,7 @@ from app.agent import generate_geogebra_script, sanitize_geogebra_command
 from app.lesson_token import sign_lesson, verify_lesson
 from app.placeholders import placeholder_names, fill_placeholders, replace_unfilled_placeholders
 from app.arithmetic_check import check_names
+from app.provider import ProviderError, ERROR_DETAILS as PROVIDER_ERROR_DETAILS
 from app.bot import (
     _generate_single_edge_audio,
     _generate_single_audio,
@@ -149,6 +150,11 @@ async def run_exercise(req: Request):
                 'names': list(dict.fromkeys(placeholder_names(lesson) + check_names(_with_checks(steps, checks)))),
                 'percent': 30,
             })
+        except ProviderError as exc:
+            # The model provider failed (no credit, rate limit, timeout, cut answer...): the UI explains the code
+            logger.warning(f"Provider error for IP {client_ip}: {exc.code} ({exc})")
+            if not await req.is_disconnected():
+                yield _sse({'status': 'error', 'code': exc.code, 'detail': PROVIDER_ERROR_DETAILS[exc.code]})
         except Exception:
             # Log the real error (with traceback) server-side, return a generic message to the client
             logger.exception(f"Critical error in bot execution for IP {client_ip}")

@@ -3,6 +3,7 @@ import logging
 import re
 
 from app.placeholders import defined_names
+from app.provider import completion_limits, log_usage, response_problem
 
 # A separate, focused call that writes the conditions a lesson's solution must satisfy, as GeoGebra checks.
 # The generator often skips its own rule 11 (CHECK YOUR CONDITIONS) or never notices that its solution
@@ -12,6 +13,7 @@ from app.placeholders import defined_names
 logger = logging.getLogger('TutorGebraChecker')
 
 CHECKER_MAX_TOKENS = 900
+CHECKER_REASONING_BUDGET = 1500  # only for models that reason (app/provider.py)
 MAX_CHECK_COMMANDS = 30
 MAX_COMMAND_CHARS = 200
 _AUX_RE = re.compile(r'^\s*(aux[A-Za-z0-9]*)\s*=\s*[^=].*$')
@@ -77,21 +79,27 @@ def _parse_checks(content: str, lesson_names: set) -> list:
     return _parse_review(content, lesson_names)[1]
 
 
-def write_checks(client, models: list, exercise_content: list, lesson: dict) -> list:
-    """GeoGebra commands (aux values and checks) that test the lesson's solution. [] if the review fails:
-    the lesson then goes on without these checks, as before."""
+def write_checks(client, models: list, exercise_content: list, lesson: dict) -> list | None:
+    """GeoGebra commands (aux values and checks) that test the lesson's solution ([] when there is no limit
+    to test). None if the review failed (provider error, cut or empty answer): the lesson then goes on
+    without these checks and the UI says it could not be verified."""
     messages = [
         {"role": "system", "content": CHECKER_PROMPT},
         {"role": "user", "content": exercise_content + [{"type": "text", "text": _describe_lesson(lesson)}]},
     ]
     try:
-        response = client.chat.send(models=models, messages=messages, temperature=0,
-                                    max_tokens=CHECKER_MAX_TOKENS, response_format={'type': 'json_object'})
+        response = client.chat.send(models=models, messages=messages, temperature=0, response_format={'type': 'json_object'},
+                                    **completion_limits(models, CHECKER_MAX_TOKENS, CHECKER_REASONING_BUDGET))
+        log_usage("Checker", response)
+        problem = response_problem(response)
+        if problem:
+            logger.warning(f"The checker's answer is {problem}: the lesson goes on without its checks")
+            return None
         limits, commands, dropped = _parse_review(response.choices[0].message.content or "",
                                                   defined_names(lesson.get("steps")))
     except Exception as exc:
         logger.warning(f"The checker call failed, the lesson goes on without its checks: {exc}")
-        return []
+        return None
     logger.info(f"Checker limits: {limits}")
     logger.info(f"Checker wrote: {commands}")
     if dropped:

@@ -185,6 +185,10 @@
                     <errors v-if="meta.failed_checks && meta.failed_checks.length" variant="warning"
                             icon="fa-solid fa-triangle-exclamation" :message="t('lesson.checksFailed')"></errors>
 
+                    <!-- The model provider had problems while generating (meta.provider_issues, app/provider.py codes) -->
+                    <errors v-if="providerWarning" variant="warning"
+                            icon="fa-solid fa-plug-circle-exclamation" :message="providerWarning"></errors>
+
                     <mini-alert></mini-alert>
                 </div>
 
@@ -322,6 +326,6 @@
         </transition>
     </div>
 
-    <script type="module" src="/static/app.js?v=19"></script>
+    <script type="module" src="/static/app.js?v=20"></script>
 </body>
 </html>

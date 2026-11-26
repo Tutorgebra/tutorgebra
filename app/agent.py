@@ -12,6 +12,11 @@ from app.geogebra_commands import (
 )
 from app.prompt_modules import build_system_prompt
 from app.checker import write_checks
+from app.provider import (
+    ProviderError, classify_provider_error, completion_limits, is_provider_error, log_usage, response_problem,
+)
+
+LESSON_MAX_TOKENS = 2500  # output for the lesson itself; models that reason get their own budget on top
 from app.arithmetic_check import (
     find_unconfirmed_results, build_arithmetic_retry_note, format_value, find_failed_checks, build_checks_retry_note,
 )
@@ -69,6 +74,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
         
     target_models = ['openai/gpt-4o-mini']
     difficulty = "manual"
+    # Problems the model provider had along the way (app/provider.py codes); the UI tells the user about them
+    provider_issues = []
 
     if selected_model != "auto":
         logger.info(f"User manually selected model: {selected_model}. Bypassing Smart Routing.")
@@ -125,6 +132,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                 
         except Exception as e:
             logger.warning(f"Smart Routing failed, falling back to standard pipeline: {e}")
+            if is_provider_error(e):
+                provider_issues.append(classify_provider_error(e))
             target_models = ['openai/gpt-4o', 'anthropic/claude-sonnet-5.5', 'openai/gpt-4o-mini']
 
     system_prompt, prompt_modules = build_system_prompt(topic_text)
@@ -154,16 +163,26 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                 models=target_models,
                 messages=messages,
                 temperature=0.3,  # lower variance: the prompt's rules and the arithmetic are followed more consistently
-                max_tokens=2500
+                # 2500 tokens for the lesson, plus a reasoning budget for models that reason (app/provider.py)
+                **completion_limits(target_models, LESSON_MAX_TOKENS),
             )
             #logs helper, to see which model was used in each response
             logger.info(f"OpenRouter successfully routed the request to model: {response.model}")
+            log_usage(f"Attempt {attempt + 1}", response)
+
+            # A cut or empty answer is a failed attempt, never an empty lesson for the student
+            problem = response_problem(response)
+            if problem:
+                provider_issues.append(problem)
+                logger.error(f"Attempt {attempt + 1}: the model's answer is {problem} (finish_reason "
+                             f"{getattr(response.choices[0], 'finish_reason', None)})")
+                if attempt < max_retries - 1:
+                    continue
+                if candidates:
+                    break  # deliver the best earlier lesson
+                raise ProviderError(problem)
 
             content = response.choices[0].message.content
-
-            if content is None:
-                logger.error(f"Model {response.model} returned empty/None content. This may be a safety refusal or API glitch.")
-                content = ""
 
             # Extract JSON block if surrounded by markdown
             match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
@@ -191,7 +210,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                         ],
                         "_meta": {
                             "difficulty": difficulty,
-                            "model": response.model
+                            "model": response.model,
+                            "provider_issues": list(dict.fromkeys(provider_issues)),
                         }
                     }
 
@@ -199,7 +219,8 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
             # The model answers every question here before writing the steps; logged only for debugging
             logger.info(f"Lesson questions: {data.get('questions')}")
             if not ("steps" in data and isinstance(data["steps"], list)):
-                data["_meta"] = {"difficulty": difficulty, "model": response.model, "failed_checks": []}
+                data["_meta"] = {"difficulty": difficulty, "model": response.model, "failed_checks": [],
+                                 "provider_issues": list(dict.fromkeys(provider_issues))}
                 return data
             for step in data["steps"]:
                 if isinstance(step, dict) and "command" in step:
@@ -215,6 +236,9 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                     notes.append(note)
                     continue
             break
+
+        except ProviderError:
+            raise  # already classified above: the router shows its code to the user
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON Parsing Error on attempt {attempt + 1}: {e}")
@@ -239,6 +263,11 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
 
         except Exception as e:
             logger.error(f"General Error: {e}")
+            # Only failures of the OpenRouter call itself are the provider's; a bug in our code is not
+            provider_code = classify_provider_error(e) if is_provider_error(e) else None
+            if provider_code:
+                provider_issues.append(provider_code)
+                logger.error(f"Attempt {attempt + 1}: provider error '{provider_code}' ({type(e).__name__})")
             if selected_model == "auto":
                 if attempt == 0:
                     target_models = ['openai/gpt-4o']
@@ -251,15 +280,19 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                     continue
             if candidates:
                 break  # deliver the best earlier lesson
+            if provider_code:
+                raise ProviderError(provider_code, str(e))
             raise Exception(f"AI Processing Error: {e}")
 
     if not candidates:
+        if provider_issues:
+            raise ProviderError(provider_issues[-1])
         raise Exception("AI Processing Error: no lesson could be generated.")
     # A retry can make a lesson worse (fix the numbers and drop the diagram): deliver the best one, not the last
     best = min(candidates, key=_candidate_rank)
     if best is not candidates[-1]:
         logger.info(f"Delivering attempt {best['attempt'] + 1} of {len(candidates)}: it is better than the last one")
-    return _finalize_lesson(best, client, target_models, user_content, prompt_modules, difficulty)
+    return _finalize_lesson(best, client, target_models, user_content, prompt_modules, difficulty, provider_issues)
 
 
 # --- One generated lesson as a candidate ------------------------------------------------------------
@@ -278,12 +311,14 @@ def _assess_lesson(data: dict, attempt: int, model: str, client, target_models: 
         # get one are a problem here
         "invalid": find_invalid_placeholders(data),
         "draws": lesson_draws_something(steps),
-        "checks": None,
+        "checks": [],
+        "reviewed": False,
+        "review_failed": False,
     }
     # The reviewer (app/checker.py) writes the conditions the solution must meet. It is only paid for lessons
     # that draw something: one that draws nothing is rewritten anyway, or reviewed at the end if it is chosen
     if candidate["draws"]:
-        candidate["checks"] = write_checks(client, target_models, user_content, data)
+        _review(candidate, client, target_models, user_content)
     _evaluate_checks(candidate)
 
     # Numbers the model typed itself are checked against what the commands compute. Placeholders count as
@@ -307,6 +342,13 @@ def _assess_lesson(data: dict, attempt: int, model: str, client, target_models: 
         readable = {name: format_value(value) for name, value in candidate["unstated"].items()}
         logger.warning(f"Attempt {n} speeches do not state the values GeoGebra computes: {readable}")
     return candidate
+
+
+def _review(candidate: dict, client, target_models: list, user_content: list) -> None:
+    checks = write_checks(client, target_models, user_content, candidate["data"])
+    candidate["reviewed"] = True
+    candidate["review_failed"] = checks is None  # the provider failed: the lesson goes on unverified
+    candidate["checks"] = checks or []
 
 
 def _evaluate_checks(candidate: dict) -> None:
@@ -339,7 +381,7 @@ def _candidate_rank(candidate: dict) -> tuple:
 
 
 def _finalize_lesson(candidate: dict, client, target_models: list, user_content: list, prompt_modules: list,
-                     difficulty: str) -> dict:
+                     difficulty: str, provider_issues: list) -> dict:
     """Prepare the chosen candidate for /api/run."""
     data = candidate["data"]
     steps = data["steps"]
@@ -347,9 +389,9 @@ def _finalize_lesson(candidate: dict, client, target_models: list, user_content:
         blank_unknown_commands(steps, candidate["unknown"])
     if candidate["invalid"]:
         replace_unfilled_placeholders(data, only=candidate["invalid"])
-    if candidate["checks"] is None:
+    if not candidate["reviewed"]:
         # Not reviewed because it draws nothing: review it now so a wrong result still gets its warning
-        candidate["checks"] = write_checks(client, target_models, user_content, data)
+        _review(candidate, client, target_models, user_content)
         _evaluate_checks(candidate)
     data["_checks"] = candidate["checks"]
 
@@ -373,5 +415,7 @@ def _finalize_lesson(candidate: dict, client, target_models: list, user_content:
         "model": candidate["model"],
         # Names of the lesson's checks that are false: the frontend warns that the result may be wrong
         "failed_checks": [c.split(":", 1)[0] for c in candidate["failed_checks"]],
+        # Problems of the model provider along the way (app/provider.py codes): the frontend shows them too
+        "provider_issues": list(dict.fromkeys(provider_issues + (["review_failed"] if candidate["review_failed"] else []))),
     }
     return data

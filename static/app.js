@@ -4,7 +4,7 @@ import ExampleCarousel from './components/ExampleCarousel.js?v=12';
 import CustomSelect from './components/CustomSelect.js?v=12';
 import MiniAlert from './components/MiniAlert.js?v=12';
 import Errors from './components/Errors.js?v=13';
-import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=14';
+import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=15';
 import { evaluateLesson, prepareCommand } from './ggb_evaluate.js?v=4';
 
 const { createApp, ref, computed, watch, nextTick } = window.Vue;
@@ -91,8 +91,20 @@ const app = createApp({
         const progressText = computed(() => translateProgress(loadingMessage.value) || t('progress.starting'));
         const loadingPercent = ref(0);
         const error = ref('');
+
+        // Codes of app/provider.py -> explanation; an unknown code gets the generic one
+        const providerReason = (code) => {
+            const key = `provider.reason.${code}`;
+            const text = t(key);
+            return text === key ? t('provider.reason.provider') : text;
+        };
         const steps = ref([]);
         const meta = ref({});
+        // The lesson was generated, but the model provider had problems on the way (meta.provider_issues)
+        const providerWarning = computed(() => {
+            const issues = meta.value.provider_issues || [];
+            return issues.length ? t('provider.warning', { reasons: issues.map(providerReason).join('; ') }) : '';
+        });
         const sessionId = ref(null);
         
         const appletLoaded = ref(false);
@@ -270,7 +282,10 @@ const app = createApp({
                     }
 
                     if (data.status === 'error') {
-                        throw new Error(data.detail || t('error.generation'));
+                        // A provider failure comes with a code (app/provider.py) that the UI explains in its language
+                        throw new Error(data.code
+                            ? t('provider.fatal', { reason: providerReason(data.code) })
+                            : (data.detail || t('error.generation')));
                     } else if (data.status === 'progress') {
                         loadingMessage.value = data.message;
                         loadingPercent.value = data.percent;
@@ -528,7 +543,7 @@ const app = createApp({
             loading, loadingMessage, loadingPercent, error, steps, meta, startTutor,
             appletLoaded, isPlaying, currentStep, togglePlay, resetLesson, nextStep,
             isFullscreen, toggleFullscreen, currentTypedText, volume,
-            progressText, lang, LANGS, setLang
+            progressText, lang, LANGS, setLang, providerWarning
         };
     }
 });
