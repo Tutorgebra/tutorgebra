@@ -49,20 +49,22 @@ def sweep_rate_limit_memory():
     for ip in stale:
         ip_requests.pop(ip, None)
 
-def check_rate_limit_memory(client_ip: str):
+def check_rate_limit_memory(client_ip: str, bucket: str = ""):
+    """bucket separates the limits of different endpoints ("" is /api/run, "voice" is /api/voice)."""
     now = time.time()
+    key = f"{bucket}:{client_ip}" if bucket else client_ip
 
     if len(ip_requests) > MAX_TRACKED_IPS:
         sweep_rate_limit_memory()
-    
+
     # Clean up requests older than the window
-    ip_requests[client_ip] = [t for t in ip_requests[client_ip] if now - t < RATE_LIMIT_WINDOW]
-    
-    if len(ip_requests[client_ip]) >= RATE_LIMIT:
-        logger.warning(f"Local memory rate limit exceeded for IP: {client_ip}")
+    ip_requests[key] = [t for t in ip_requests[key] if now - t < RATE_LIMIT_WINDOW]
+
+    if len(ip_requests[key]) >= RATE_LIMIT:
+        logger.warning(f"Local memory rate limit exceeded for IP: {client_ip} {bucket}")
         raise HTTPException(status_code=429, detail="Too many requests. Please wait a minute before generating another lesson.")
-        
-    ip_requests[client_ip].append(now)
+
+    ip_requests[key].append(now)
 
 # --- Allowlists ---
 # gTTS voices map to a fixed (lang, tld) pair: the tld is interpolated by gTTS into

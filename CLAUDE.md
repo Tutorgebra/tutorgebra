@@ -56,9 +56,11 @@ Deployment is manual: the `Manual Deploy to Railway` workflow (`workflow_dispatc
 
 Session folders are removed by `/api/cleanup/{session_id}` (called via `navigator.sendBeacon`; strict UUID parse + realpath confinement in `app/routers/sessions.py`) and by a background task in `app/main.py` that every 10 minutes deletes folders older than 30 minutes and sweeps the in-memory rate-limit dict.
 
-### `app/system_prompt.md` is core logic
+### `app/prompts/` is core logic
 
-This file is read from disk on every request and is where most GeoGebra-correctness "bug fixes" land. It encodes hard-won applet quirks (points must start uppercase or they become vectors; no single-letter or underscore names; `:` not `=` for named equations; no `RegularPolygon`, `Incenter`, `Circumcenter`; `Focus`/`Vertex`/`Extremum` return un-indexable tuples; 2D only; explicit `*` for matrices).
+The system prompt is split into files that `build_system_prompt` in `app/prompt_modules.py` assembles on every request (read from disk each time): `core.md` (always, first, so provider prompt caching keeps working), the topic modules whose keywords match the request, and `output_format.md` (always, last). Matching runs on the user's text plus the OCR text in Auto mode, lowercased and without accents, against the regexes in `PROMPT_MODULES`. Every module is sent when nothing matches or when there is a photo without extracted text (manual mode), and attempts 2 and 3 always use the full prompt. A new rule goes in the module of its topic; a rule every lesson needs goes in `core.md`; a new module needs an entry in `PROMPT_MODULES` with broad keywords in Spanish and English (a missing module makes the model avoid the right command, which does not trigger a retry).
+
+These files are where most GeoGebra-correctness "bug fixes" land. They encode hard-won applet quirks (points must start uppercase or they become vectors; no single-letter or underscore names; `:` not `=` for named equations; no `RegularPolygon`, `Incenter`, `Circumcenter`; `Focus`/`Vertex`/`Extremum` return un-indexable tuples; 2D only; explicit `*` for matrices).
 
 Convention when adding rules (see `docs/HallucinationReduction.md`): one standalone bullet per rule, prefixed with a bold capitalized severity tag such as `**[TOPIC] (CRITICAL):**` or `(FATAL ERROR)`, with a correct and an incorrect example. The output contract is `{"language": "...", "steps": [{"command", "speech"}]}`; GeoGebra commands are always English, `speech` is in the user's language.
 

@@ -35,6 +35,7 @@ const messages = {
         'model.advanced': 'Advanced Math & Vision',
         'model.basic': 'Basic Math',
         'model.badge': 'Model',
+        'lesson.checksFailed': "This lesson's own checks found a condition its solution does not meet, so its result may be wrong. Review it before trusting it.",
 
         'generate.idle': 'Generate Lesson',
         'generate.busy': 'Generating lesson...',
@@ -79,6 +80,7 @@ const messages = {
 
         'progress.starting': 'Starting...',
         'progress.thinking': 'Thinking about the mathematical solution...',
+        'progress.evaluating': 'Checking the values on the board...',
         'progress.generated': 'Lesson generated ({n} steps). Synthesizing teacher voice...',
         'progress.audioStep': 'Synthesizing audio step {a}/{b}...',
 
@@ -118,6 +120,7 @@ const messages = {
         'model.advanced': 'Matemáticas avanzadas y visión',
         'model.basic': 'Matemáticas básicas',
         'model.badge': 'Modelo',
+        'lesson.checksFailed': 'Las comprobaciones de esta lección encontraron una condición que su solución no cumple, así que el resultado podría ser incorrecto. Revísalo antes de darlo por bueno.',
 
         'generate.idle': 'Generar lección',
         'generate.busy': 'Generando lección...',
@@ -162,6 +165,7 @@ const messages = {
 
         'progress.starting': 'Iniciando...',
         'progress.thinking': 'Pensando en la solución matemática...',
+        'progress.evaluating': 'Comprobando los valores en el tablero...',
         'progress.generated': 'Lección generada ({n} pasos). Sintetizando la voz del profesor...',
         'progress.audioStep': 'Sintetizando el audio del paso {a}/{b}...',
 
@@ -191,6 +195,8 @@ export function setLang(code) {
 export function translateProgress(message) {
     if (!message) return '';
     if (message === 'Thinking about the mathematical solution...') return t('progress.thinking');
+    // Set by app.js itself while the lesson runs in GeoGebra before the voice is synthesized
+    if (message === 'Checking the values on the board...') return t('progress.evaluating');
     let m = message.match(/^Lesson generated \((\d+) steps\)\. Synthesizing teacher voice\.\.\.$/);
     if (m) return t('progress.generated', { n: m[1] });
     m = message.match(/^Synthesizing audio step (\d+)\/(\d+)\.\.\.$/);

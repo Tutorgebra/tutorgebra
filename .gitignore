@@ -9,3 +9,5 @@ wheels/
 # Virtual environments
 .venv
 .env
+# Local benchmark (python -m exercises_test.run_evals), kept out of the repo
+exercises_test/

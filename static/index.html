@@ -181,6 +181,10 @@
                         </span>
                     </div>
 
+                    <!-- The lesson's own checks found a condition its solution does not meet (meta.failed_checks) -->
+                    <errors v-if="meta.failed_checks && meta.failed_checks.length" variant="warning"
+                            icon="fa-solid fa-triangle-exclamation" :message="t('lesson.checksFailed')"></errors>
+
                     <mini-alert></mini-alert>
                 </div>
 
@@ -318,6 +322,6 @@
         </transition>
     </div>
 
-    <script type="module" src="/static/app.js?v=12"></script>
+    <script type="module" src="/static/app.js?v=19"></script>
 </body>
 </html>

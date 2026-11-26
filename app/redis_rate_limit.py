@@ -32,7 +32,7 @@ async def close_redis():
         await redis_client.close()
         redis_client = None
 
-async def check_rate_limit_redis(client_ip: str, limit: int = 5, window: int = 60) -> bool:
+async def check_rate_limit_redis(client_ip: str, limit: int = 5, window: int = 60, bucket: str = "") -> bool:
     """
     Verify if an IP has exceeded the request limit using a Sliding Window Log
     algorithm with Redis Sorted Sets (ZSET).
@@ -45,7 +45,8 @@ async def check_rate_limit_redis(client_ip: str, limit: int = 5, window: int = 6
         logger.warning(f"Redis is offline. Falling back to local memory limit for IP: {client_ip}")
         return False
 
-    key = f"rate_limit:{client_ip}"
+    # bucket separates the limits of different endpoints ("" is /api/run, "voice" is /api/voice)
+    key = f"rate_limit:{bucket}:{client_ip}" if bucket else f"rate_limit:{client_ip}"
     now = time.time()
     window_start = now - window
     member = f"{now}:{uuid.uuid4()}"
