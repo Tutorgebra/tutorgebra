@@ -101,9 +101,23 @@ To prevent catastrophic GeoGebra Applet crashes caused by LLMs "knowing too much
 
 **1. Experimental Project:** Please note that TutorGebra AI is an highly experimental project. It is currently being developed and maintained by a developer who does not possess advanced or specialized mathematical knowledge. Because mathematics is incredibly vast, many edge cases, complex geometrical constructions, and advanced calculus scenarios are not yet fully covered by the AI's internal guardrails. As a result, the application might occasionally crash, the AI might hallucinate invalid GeoGebra commands, or it might construct a mathematically flawed explanation.
 
-**2. Contributions are Highly Encouraged:** If you encounter hallucinations, bad text formatting in the UI, GeoGebra syntax crashes, or mathematical logic errors, your help is warmly welcomed! Please feel free to open an **Issue** on the repository to report the bug, or submit a **Pull Request (PR)** if you know how to fix it in the code or system prompt. 
+**2. Contributions are Highly Encouraged:** If you encounter hallucinations, bad text formatting in the UI, GeoGebra syntax crashes, or mathematical logic errors, your help is warmly welcomed! Please feel free to open an **Issue** on the repository to report the bug, or submit a **Pull Request (PR)** if you know how to fix it in the code or system prompt. Before contributing, read [CONTRIBUTING.md](../CONTRIBUTING.md). 
 
 **3. Calling All Mathematicians:** This project relies on continuous collaboration. We desperately need the support of mathematicians, teachers, and domain experts who *actually* know the math to help us refine the model's inference rules. Your expertise can help us write better, stricter guardrails in the `system_prompt.md` to prevent the AI from making complex mathematical mistakes, ultimately creating a more robust and reliable educational tool for everyone.
+
+---
+
+## 📜 License / Licencia
+
+TutorGebra is **source-available** under the [Functional Source License 1.1, MIT Future License (FSL-1.1-MIT)](../LICENSE) ([fsl.software](https://fsl.software)).
+
+* ✅ You can read, run, modify and share the code, use it in class, for research or inside your organization, and contribute with issues and pull requests.
+* ❌ You can't offer TutorGebra, or a fork of it, as a commercial product or service that competes with it.
+* 🔓 Each version becomes MIT-licensed two years after it is published.
+
+Versions published before this license change remain under the MIT License.
+
+**Español:** TutorGebra es de **código fuente disponible** bajo la licencia FSL-1.1-MIT. Puedes leer, ejecutar, modificar y compartir el código, usarlo en clase, para investigar o dentro de tu organización, y contribuir con issues y pull requests. No puedes ofrecer TutorGebra, ni un fork, como producto o servicio comercial que compita con él. Cada versión pasa a licencia MIT dos años después de publicarse. Las versiones publicadas antes de este cambio siguen bajo licencia MIT.
 
 ---
 
