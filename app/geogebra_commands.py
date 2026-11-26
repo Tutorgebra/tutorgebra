@@ -1,7 +1,7 @@
 import re
 
 # Real GeoGebra commands the model is allowed to emit. It covers every command documented in
-# system_prompt.md plus other common ones, so a correct lesson is never rejected. Anything
+# app/prompts/ plus other common ones, so a correct lesson is never rejected. Anything
 # capitalized and followed by "(" that is not listed here is treated as a hallucination
 # (e.g. RegularPolygon, Incenter, Circumcenter, Orthocenter, Label, VerticalAsymptote).
 VALID_COMMANDS = frozenset({
@@ -100,6 +100,89 @@ def build_retry_note(unknown: list) -> str:
         "Write the complete lesson again from scratch. You MUST use ONLY commands from this list of valid "
         f"GeoGebra commands: {', '.join(sorted(VALID_COMMANDS))}."
     )
+
+
+# --- Does the lesson draw anything? ------------------------------------------------------------------
+# TutorGebra is a visual tutor, but the model sometimes answers with numbers only, typically when it rewrites
+# a lesson after a validation note (it then focuses on the numbers and drops the diagram).
+
+# Commands that put something visible on the board
+DRAWING_COMMANDS = frozenset({
+    "Polygon", "Polyline", "Segment", "Line", "Ray", "Vector", "Circle", "Ellipse", "Hyperbola", "Parabola",
+    "Conic", "Semicircle", "CircularArc", "CircularSector", "Function", "Curve", "Text", "Point", "PointIn",
+    "Intersect", "Midpoint", "Centroid", "Center", "TriangleCenter", "Incircle", "Tangent", "PerpendicularLine",
+    "ParallelLine", "PerpendicularBisector", "AngleBisector", "Angle", "Locus", "ConvexHull", "FitLine",
+    "Asymptote", "Extremum", "Root", "Focus", "Vertex", "Directrix", "MajorAxis", "MinorAxis", "InflectionPoint",
+    "Integral", "IntegralBetween", "UpperSum", "LowerSum", "Translate", "Rotate", "Reflect", "Dilate",
+    "ApplyMatrix", "BarChart", "Histogram", "BoxPlot", "DotPlot", "StemPlot", "PieChart", "Slider", "Sequence",
+})
+_POINT_RE = re.compile(r'^\s*[A-Z][A-Za-z0-9]*\s*=\s*\(')                        # A = (1, 2)
+_NAMED_EQUATION_RE = re.compile(r'^\s*[A-Za-z][A-Za-z0-9]*\s*:')                  # line1: y = 2x + 1
+_BARE_EQUATION_RE = re.compile(r'^[^=<>!]*\b[xy]\b[^=<>!]*(?<![<>!=])=(?!=)')       # y = 2x + 1, x^2 + y^2 = 16
+
+
+_CHECK_OR_AUX_RE = re.compile(r'^\s*(?:check|aux)[A-Za-z0-9]*\s*[:=]')  # booleans and helper numbers, never visible
+
+
+def _draws(cmd: str) -> bool:
+    if not cmd.strip() or _CHECK_OR_AUX_RE.match(cmd):
+        return False
+    if _POINT_RE.match(cmd) or _FUNCTION_DEF_RE.match(cmd) or _NAMED_EQUATION_RE.match(cmd):
+        return True
+    if _BARE_EQUATION_RE.match(cmd):
+        return True
+    return any(name in DRAWING_COMMANDS for name in _called_names(cmd))
+
+
+def lesson_draws_something(steps) -> bool:
+    return any(_draws(cmd) for _, cmd in _step_commands(steps))
+
+
+def build_drawing_retry_note() -> str:
+    return (
+        "[SYSTEM VALIDATION - CRITICAL] A previous answer to this request was REJECTED because its lesson draws "
+        "NOTHING on the board: every command only computes numbers or checks. TutorGebra is a visual tutor. Follow "
+        "VISUALIZATION CHOICE and draw the situation (for example a block diagram with one Polygon box per station "
+        "joined by Vector arrows and labelled with Text, the graph of the function with its key points, a bar chart, "
+        "or the figure itself), keeping every calculation and check. Write the complete lesson again from scratch."
+    )
+
+
+_RESTRICTED_SOURCE_RE = re.compile(r'\bFunction\s*\(\s*([A-Za-z][A-Za-z0-9]*)\s*,')
+
+
+def _is_hidden_later(steps, name: str) -> bool:
+    hide_re = re.compile(
+        rf'\b(?:SetVisibleInView\s*\(\s*{re.escape(name)}\s*,\s*1\s*,\s*false|'
+        rf'SetConditionToShowObject\s*\(\s*{re.escape(name)}\s*,\s*false)\s*\)'
+    )
+    return any(hide_re.search(cmd) for _, cmd in _step_commands(steps))
+
+
+def hide_restricted_function_sources(steps) -> list:
+    """Hide a lesson function that is drawn again restricted with Function(funcF, a, b).
+
+    GeoGebra keeps drawing funcF complete, so the board shows the curve twice, including the negative
+    branch an applied quantity cannot have. Unless the lesson already hides funcF, a step
+    SetVisibleInView(funcF, 1, false) (no speech) is inserted right after the restriction.
+    Returns the names hidden, for logging.
+    """
+    if not isinstance(steps, list):
+        return []
+    defined, hidden = set(), []
+    i = 0
+    while i < len(steps):
+        cmd = steps[i].get("command") if isinstance(steps[i], dict) else None
+        if isinstance(cmd, str):
+            for name in _RESTRICTED_SOURCE_RE.findall(_STRING_RE.sub('""', cmd)):
+                if name in defined and name not in hidden and not _is_hidden_later(steps, name):
+                    steps.insert(i + 1, {"command": f"SetVisibleInView({name}, 1, false)", "speech": ""})
+                    hidden.append(name)
+            m = _FUNCTION_DEF_RE.match(cmd)
+            if m:
+                defined.add(m.group(1))
+        i += 1
+    return hidden
 
 
 def blank_unknown_commands(steps, unknown: list) -> None:

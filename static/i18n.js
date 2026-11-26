@@ -31,10 +31,30 @@ const messages = {
         'voice.female': 'Female',
 
         'model.label': 'AI Model',
-        'model.auto': 'Auto (Smart Routing)',
+        'model.auto': 'Auto (detects formula or reasoning)',
+        'explain.label': 'Explain more',
+        'explain.hint': 'Each step explains what is done, why, and what the result means. The lesson will be longer and take a little more time.',
+        'model.autoHint': 'Formula exercises are solved with GPT-4o. Reasoning exercises (line balancing, optimization, scheduling...) go straight to Claude Sonnet 5.5 and may take up to a minute because of their complexity.',
+        'difficulty.formula': 'Formula',
+        'difficulty.reasoning': 'Reasoning',
+        'difficulty.manual': 'Manual',
+        'progress.reasoning': 'Reasoning exercise: it is solved with Claude Sonnet 5.5 and may take up to a minute...',
         'model.advanced': 'Advanced Math & Vision',
         'model.basic': 'Basic Math',
         'model.badge': 'Model',
+        'lesson.checksFailed': "This lesson's own checks found a condition its solution does not meet, so its result may be wrong. Review it before trusting it.",
+        'provider.fatal': 'The lesson could not be generated: {reason}.',
+        'provider.warning': 'The AI model provider had problems while generating this lesson: {reasons}.',
+        'provider.reason.credits': 'the provider account (OpenRouter) does not have enough credit',
+        'provider.reason.rate_limit': 'the provider is limiting requests, wait a moment and try again',
+        'provider.reason.timeout': 'the provider took too long to answer',
+        'provider.reason.unavailable': 'the model provider is not available right now',
+        'provider.reason.moderation': "the provider rejected the request with its content filters",
+        'provider.reason.auth': 'the API key is not valid',
+        'provider.reason.truncated': "the model's answer was cut off by its length limit",
+        'provider.reason.empty': 'the model returned an empty answer',
+        'provider.reason.review_failed': 'the lesson could not be verified by the reviewer',
+        'provider.reason.provider': 'the model provider returned an error',
 
         'generate.idle': 'Generate Lesson',
         'generate.busy': 'Generating lesson...',
@@ -79,6 +99,7 @@ const messages = {
 
         'progress.starting': 'Starting...',
         'progress.thinking': 'Thinking about the mathematical solution...',
+        'progress.evaluating': 'Checking the values on the board...',
         'progress.generated': 'Lesson generated ({n} steps). Synthesizing teacher voice...',
         'progress.audioStep': 'Synthesizing audio step {a}/{b}...',
 
@@ -114,10 +135,30 @@ const messages = {
         'voice.female': 'Mujer',
 
         'model.label': 'Modelo de IA',
-        'model.auto': 'Auto (enrutamiento inteligente)',
+        'model.auto': 'Auto (detecta fórmula o razonamiento)',
+        'explain.label': 'Explica más',
+        'explain.hint': 'Cada paso explica qué se hace, por qué y qué significa el resultado. La lección será más larga y tardará un poco más.',
+        'model.autoHint': 'Los ejercicios de fórmula se resuelven con GPT-4o. Los de razonamiento (balanceo de líneas, optimización, secuenciación...) van directo a Claude Sonnet 5.5 y pueden tardar hasta un minuto por su complejidad.',
+        'difficulty.formula': 'Fórmula',
+        'difficulty.reasoning': 'Razonamiento',
+        'difficulty.manual': 'Manual',
+        'progress.reasoning': 'Ejercicio de razonamiento: se resuelve con Claude Sonnet 5.5 y puede tardar hasta un minuto...',
         'model.advanced': 'Matemáticas avanzadas y visión',
         'model.basic': 'Matemáticas básicas',
         'model.badge': 'Modelo',
+        'lesson.checksFailed': 'Las comprobaciones de esta lección encontraron una condición que su solución no cumple, así que el resultado podría ser incorrecto. Revísalo antes de darlo por bueno.',
+        'provider.fatal': 'No se pudo generar la lección: {reason}.',
+        'provider.warning': 'El proveedor del modelo de IA tuvo problemas al generar esta lección: {reasons}.',
+        'provider.reason.credits': 'la cuenta del proveedor (OpenRouter) no tiene crédito suficiente',
+        'provider.reason.rate_limit': 'el proveedor está limitando las peticiones, espera un momento y vuelve a intentarlo',
+        'provider.reason.timeout': 'el proveedor tardó demasiado en responder',
+        'provider.reason.unavailable': 'el proveedor del modelo no está disponible en este momento',
+        'provider.reason.moderation': 'el proveedor rechazó la petición por sus filtros de contenido',
+        'provider.reason.auth': 'la clave de API no es válida',
+        'provider.reason.truncated': 'la respuesta del modelo se cortó por su límite de longitud',
+        'provider.reason.empty': 'el modelo devolvió una respuesta vacía',
+        'provider.reason.review_failed': 'el revisor no pudo verificar la lección',
+        'provider.reason.provider': 'el proveedor del modelo devolvió un error',
 
         'generate.idle': 'Generar lección',
         'generate.busy': 'Generando lección...',
@@ -162,6 +203,7 @@ const messages = {
 
         'progress.starting': 'Iniciando...',
         'progress.thinking': 'Pensando en la solución matemática...',
+        'progress.evaluating': 'Comprobando los valores en el tablero...',
         'progress.generated': 'Lección generada ({n} pasos). Sintetizando la voz del profesor...',
         'progress.audioStep': 'Sintetizando el audio del paso {a}/{b}...',
 
@@ -191,6 +233,10 @@ export function setLang(code) {
 export function translateProgress(message) {
     if (!message) return '';
     if (message === 'Thinking about the mathematical solution...') return t('progress.thinking');
+    // Sent by app/routers/exercises.py (REASONING_PROGRESS) when Auto routes the exercise to Claude Sonnet
+    if (message === 'Reasoning exercise detected: it is solved with Claude Sonnet 5.5 and may take up to a minute...') return t('progress.reasoning');
+    // Set by app.js itself while the lesson runs in GeoGebra before the voice is synthesized
+    if (message === 'Checking the values on the board...') return t('progress.evaluating');
     let m = message.match(/^Lesson generated \((\d+) steps\)\. Synthesizing teacher voice\.\.\.$/);
     if (m) return t('progress.generated', { n: m[1] });
     m = message.match(/^Synthesizing audio step (\d+)\/(\d+)\.\.\.$/);

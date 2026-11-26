@@ -150,6 +150,22 @@
                     <div class="mb-6">
                         <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ t('model.label') }}</label>
                         <custom-select v-model="selectedModel" :options="modelOptions"></custom-select>
+                        <!-- Auto sends reasoning exercises straight to Claude Sonnet 5.5, which is slower -->
+                        <errors v-if="selectedModel === 'auto'" variant="warning" compact
+                                icon="fa-solid fa-hourglass-half" :message="t('model.autoHint')"></errors>
+                    </div>
+
+                    <!-- "Explain more": the lesson explains the why of every step (app/prompts/explain.md) -->
+                    <div class="mb-6">
+                        <label class="flex items-start gap-3 cursor-pointer select-none">
+                            <input type="checkbox" v-model="explainMore" class="mt-1 w-4 h-4 accent-primary-600 cursor-pointer">
+                            <span>
+                                <span class="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                    <i class="fa-solid fa-person-chalkboard text-primary-600 dark:text-primary-400"></i> {{ t('explain.label') }}
+                                </span>
+                                <span class="block text-xs text-gray-500 dark:text-gray-400 mt-1">{{ t('explain.hint') }}</span>
+                            </span>
+                        </label>
                     </div>
 
                     <button @click="startTutor" :disabled="loading || (!prompt?.trim() && !imageBase64) || ((prompt?.length || 0) > MAX_PROMPT_CHARS)" 
@@ -177,9 +193,17 @@
                             <i class="fa-solid fa-microchip"></i> {{ t('model.badge') }}: {{ meta.model }}
                         </span>
                         <span class="px-2 py-1 bg-blue-200 dark:bg-blue-800 rounded-full text-[10px] uppercase tracking-wider">
-                            <i class="fa-solid fa-layer-group"></i> {{ meta.difficulty }}
+                            <i class="fa-solid fa-layer-group"></i> {{ t('difficulty.' + meta.difficulty) === 'difficulty.' + meta.difficulty ? meta.difficulty : t('difficulty.' + meta.difficulty) }}
                         </span>
                     </div>
+
+                    <!-- The lesson's own checks found a condition its solution does not meet (meta.failed_checks) -->
+                    <errors v-if="meta.failed_checks && meta.failed_checks.length" variant="warning"
+                            icon="fa-solid fa-triangle-exclamation" :message="t('lesson.checksFailed')"></errors>
+
+                    <!-- The model provider had problems while generating (meta.provider_issues, app/provider.py codes) -->
+                    <errors v-if="providerWarning" variant="warning"
+                            icon="fa-solid fa-plug-circle-exclamation" :message="providerWarning"></errors>
 
                     <mini-alert></mini-alert>
                 </div>
@@ -318,6 +342,6 @@
         </transition>
     </div>
 
-    <script type="module" src="/static/app.js?v=12"></script>
+    <script type="module" src="/static/app.js?v=22"></script>
 </body>
 </html>

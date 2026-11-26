@@ -2,7 +2,8 @@ export default {
     props: {
         message: { type: String, required: true },
         variant: { type: String, default: 'error' }, // 'error' | 'warning'
-        compact: { type: Boolean, default: false }
+        compact: { type: Boolean, default: false },
+        icon: { type: String, default: '' } // optional Font Awesome classes; each variant has its own default
     },
     template: `
     <div role="alert" :class="['rounded-lg border flex items-start gap-2 transition-colors', sizeClasses, variantClasses]">
@@ -20,6 +21,7 @@ export default {
             return this.compact ? 'mt-2 p-2 text-xs' : 'mt-4 p-3 text-sm';
         },
         iconClass() {
+            if (this.icon) return this.icon;
             return this.variant === 'warning' ? 'fa-solid fa-volume-xmark' : 'fa-solid fa-triangle-exclamation';
         }
     }

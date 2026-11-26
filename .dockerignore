@@ -10,3 +10,6 @@ install_and_run.sh
 # Security: Exclude environment variables to prevent API key leaks
 .env
 *.env
+
+# Local benchmark, never deployed
+exercises_test/

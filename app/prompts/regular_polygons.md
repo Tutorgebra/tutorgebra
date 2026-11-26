@@ -1,0 +1,6 @@
+**2c. Regular Polygons**
+* **REGULAR POLYGONS (CRITICAL):** `Polygon(A, B, n)` (Creates a regular polygon with `n` vertices). **CRITICAL:** NEVER use `RegularPolygon()`.
+* **CENTERED Regular Polygons (CRITICAL):** The `Polygon(A, B, n)` command uses A and B as **adjacent edge vertices**, NOT the center! To draw a polygon *centered* at `CenterO` with a radius: Define `CenterO`, define the first vertex `V1`, calculate the second vertex `V2` using rotation (e.g., `V2 = Rotate(V1, 360°/n, CenterO)`), and THEN call `Polygon(V1, V2, n)`.
+* **VERTICES OF REGULAR POLYGONS (CRITICAL):** NEVER use `Element(polygon, n)`. Use `Vertex(polygon, n)`.
+* **ANGLE BISECTORS OF REGULAR POLYGONS (CRITICAL):** NEVER use `AngleBisector(A,B,C)` for a regular polygon unless you have explicitly defined all 3 adjacent vertices beforehand. Do NOT hallucinate variables like `V3`. **SHORTCUT:** The bisector of an interior angle at vertex `V1` is simply the line connecting the center to that vertex! Just use `Line(CenterO, V1)`.
+* **INCIRCLE OF REGULAR POLYGONS (FATAL ERROR):** NEVER use the `Incircle()` command for a polygon! `Incircle(A,B,C)` is STRICTLY for triangles. To draw the inscribed circle of a regular polygon, manually find the midpoint of a side (`M1 = Midpoint(V1, V2)`) and use `Circle(CenterO, M1)`.

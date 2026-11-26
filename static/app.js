@@ -3,8 +3,9 @@ import FloatingBackground from './components/FloatingBackground.js?v=12';
 import ExampleCarousel from './components/ExampleCarousel.js?v=12';
 import CustomSelect from './components/CustomSelect.js?v=12';
 import MiniAlert from './components/MiniAlert.js?v=12';
-import Errors from './components/Errors.js?v=12';
-import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=12';
+import Errors from './components/Errors.js?v=13';
+import { lang, t, setLang, translateProgress, LANGS } from './i18n.js?v=17';
+import { evaluateLesson, prepareCommand } from './ggb_evaluate.js?v=4';
 
 const { createApp, ref, computed, watch, nextTick } = window.Vue;
 
@@ -35,7 +36,11 @@ const app = createApp({
         const ttsVoice = ref('auto');
         const edgeVoice = ref('es-MX-JorgeNeural');
         const useEdgeTts = ref(false);
-        const selectedModel = ref('auto');
+        const selectedModel = ref('auto'); // Auto: formula exercises to GPT-4o, reasoning ones to Claude Sonnet 5.5
+        // "Explain more": the lesson explains the why of every step. Remembered per browser; storage may be blocked
+        const readExplainMore = () => { try { return localStorage.getItem('explainMore') === '1'; } catch { return false; } };
+        const explainMore = ref(readExplainMore());
+        watch(explainMore, (on) => { try { localStorage.setItem('explainMore', on ? '1' : '0'); } catch { /* not remembered */ } });
         
         // Option labels are computed so they follow the UI language; voice and model names stay as-is.
         const gttsOptions = computed(() => [
@@ -70,7 +75,7 @@ const app = createApp({
             { value: 'auto', label: t('model.auto') },
             { value: 'openai/gpt-4o', label: `GPT-4o (${t('model.advanced')})` },
             { value: 'openai/gpt-4o-mini', label: `GPT-4o-mini (${t('model.basic')})` },
-            { value: 'anthropic/claude-sonnet-5.5', label: 'Claude 3.5 Sonnet' }
+            { value: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5' }
         ]);
 
         const toggleEdgeTts = () => { useEdgeTts.value = !useEdgeTts.value; };
@@ -90,8 +95,20 @@ const app = createApp({
         const progressText = computed(() => translateProgress(loadingMessage.value) || t('progress.starting'));
         const loadingPercent = ref(0);
         const error = ref('');
+
+        // Codes of app/provider.py -> explanation; an unknown code gets the generic one
+        const providerReason = (code) => {
+            const key = `provider.reason.${code}`;
+            const text = t(key);
+            return text === key ? t('provider.reason.provider') : text;
+        };
         const steps = ref([]);
         const meta = ref({});
+        // The lesson was generated, but the model provider had problems on the way (meta.provider_issues)
+        const providerWarning = computed(() => {
+            const issues = meta.value.provider_issues || [];
+            return issues.length ? t('provider.warning', { reasons: issues.map(providerReason).join('; ') }) : '';
+        });
         const sessionId = ref(null);
         
         const appletLoaded = ref(false);
@@ -197,11 +214,15 @@ const app = createApp({
                 "showAlgebraInput": true,
                 "showMenuBar": false,
                 "language": "en", // GeoGebra API language
+                // A rejected command must not open a "Please check your input" popup in front of the
+                // student; executeGgbCommand logs it to the console instead
+                "errorDialogsActive": false,
                 // GeoGebra preloads every command module except "discrete" (ConvexHull, Voronoi...),
                 // whose commands fail with "Discrete commands not loaded yet". No spaces in the list.
                 "preloadModules": "advanced,prover,scripting,stats,cas,spatial,discrete",
                 "appletOnLoad": (api) => {
                     ggbAppletInstance = api;
+                    api.setErrorDialogsActive(false); // same as errorDialogsActive, in case reset() restores it
                     appletLoaded.value = true;
                     
                     let resizeTimeout;
@@ -222,6 +243,73 @@ const app = createApp({
             const applet = new GGBApplet(params, true);
             applet.inject('ggb-element');
         };
+
+        const postJson = (url, body) => fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Tutor-Client': 'TutorGebraWeb'
+            },
+            body: JSON.stringify(body)
+        });
+
+        // Reads the SSE stream the server sends over a POST body (EventSource only does GET). Progress events
+        // update the loading bar, an error event throws, and every other event goes to onEvent.
+        const readEventStream = async (response, onEvent) => {
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || t('error.server'));
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete chunk
+
+                for (let line of lines) {
+                    line = line.trim();
+                    if (!line.startsWith('data:')) continue;
+                    const jsonStr = line.substring(5).trim();
+                    if (!jsonStr) continue;
+
+                    let data;
+                    try {
+                        data = JSON.parse(jsonStr);
+                    } catch (err) {
+                        console.error("Error parsing SSE JSON:", jsonStr, err);
+                        continue;
+                    }
+
+                    if (data.status === 'error') {
+                        // A provider failure comes with a code (app/provider.py) that the UI explains in its language
+                        throw new Error(data.code
+                            ? t('provider.fatal', { reason: providerReason(data.code) })
+                            : (data.detail || t('error.generation')));
+                    } else if (data.status === 'progress') {
+                        loadingMessage.value = data.message;
+                        loadingPercent.value = data.percent;
+                    } else {
+                        onEvent(data);
+                    }
+                }
+            }
+        };
+
+        // The applet is created on the first lesson and loads in parallel with the generation
+        const waitForApplet = (timeoutMs = 30000) => new Promise((resolve) => {
+            const started = Date.now();
+            const check = () => {
+                if (appletLoaded.value) resolve(true);
+                else if (Date.now() - started > timeoutMs) resolve(false);
+                else setTimeout(check, 200);
+            };
+            check();
+        });
 
         const startTutor = async () => {
             // Clean up previous session if it exists
@@ -245,79 +333,57 @@ const app = createApp({
             }
             
             try {
-                const response = await fetch('/api/run', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Tutor-Client': 'TutorGebraWeb'
-                    },
-                    body: JSON.stringify({
-                        prompt: prompt.value,
-                        api_key: apiKey.value,
-                        voice: useEdgeTts.value ? null : ttsVoice.value,
-                        edge_voice: useEdgeTts.value ? edgeVoice.value : null,
-                        image: imageBase64.value,
-                        selected_model: selectedModel.value
-                    })
+                // 1. Generate the lesson. It comes back signed, with its commands and the {name} placeholders to fill
+                let lesson = null;
+                await readEventStream(await postJson('/api/run', {
+                    prompt: prompt.value,
+                    api_key: apiKey.value,
+                    voice: useEdgeTts.value ? null : ttsVoice.value,
+                    edge_voice: useEdgeTts.value ? edgeVoice.value : null,
+                    image: imageBase64.value,
+                    selected_model: selectedModel.value,
+                    explain_more: explainMore.value
+                }), (data) => {
+                    if (data.status === 'evaluate') lesson = data;
                 });
-                
-                if (!response.ok) {
-                    const errData = await response.json();
-                    throw new Error(errData.detail || t('error.server'));
+                if (!lesson) {
+                    throw new Error(t('error.interrupted'));
                 }
-                
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
-                let completedSuccessfully = false;
-                
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop(); // keep incomplete chunk
-                    
-                    for (let line of lines) {
-                        line = line.trim();
-                        if (!line) continue;
-                        
-                        if (line.startsWith('data:')) {
-                            // Extract JSON string and safely parse
-                            const jsonStr = line.substring(5).trim();
-                            if (!jsonStr) continue;
-                            
-                            let data;
-                            try {
-                                data = JSON.parse(jsonStr);
-                            } catch (err) {
-                                console.error("Error parsing SSE JSON:", jsonStr, err);
-                                continue;
-                            }
-                            
-                            if (data.status === 'progress') {
-                                loadingMessage.value = data.message;
-                                loadingPercent.value = data.percent;
-                            } else if (data.status === 'done') {
-                                completedSuccessfully = true;
-                                steps.value = data.steps;
-                                sessionId.value = data.session_id;
-                                if (data.meta) meta.value = data.meta;
-                                // Check if GeoGebra finished loading
-                                const checkAndPlay = setInterval(() => {
-                                    if (appletLoaded.value) {
-                                        clearInterval(checkAndPlay);
-                                        togglePlay();
-                                    }
-                                }, 500);
-                            } else if (data.status === 'error') {
-                                throw new Error(data.detail || t('error.generation'));
-                            }
-                        }
+
+                // 2. Run it in GeoGebra without playing it, to read the values the board really computes.
+                //    If the applet is not available the server falls back to its own (arithmetic only) values.
+                loadingMessage.value = 'Checking the values on the board...';
+                loadingPercent.value = lesson.percent || 30;
+                let evaluation = { values: {}, failed: [] };
+                if (await waitForApplet()) {
+                    try {
+                        evaluation = await evaluateLesson(ggbAppletInstance, lesson.commands, lesson.names);
+                    } catch (err) {
+                        console.error('Could not evaluate the lesson in GeoGebra; the server will use its own values', err);
                     }
                 }
-                
+
+                // 3. The server puts those values into the speeches and synthesizes the voice
+                let completedSuccessfully = false;
+                await readEventStream(await postJson('/api/voice', {
+                    token: lesson.token,
+                    values: evaluation.values,
+                    failed: evaluation.failed
+                }), (data) => {
+                    if (data.status !== 'done') return;
+                    completedSuccessfully = true;
+                    steps.value = data.steps;
+                    sessionId.value = data.session_id;
+                    if (data.meta) meta.value = data.meta;
+                    // Check if GeoGebra finished loading
+                    const checkAndPlay = setInterval(() => {
+                        if (appletLoaded.value) {
+                            clearInterval(checkAndPlay);
+                            togglePlay();
+                        }
+                    }, 500);
+                });
+
                 if (!completedSuccessfully) {
                     throw new Error(t('error.interrupted'));
                 }
@@ -384,13 +450,12 @@ const app = createApp({
 
         const executeGgbCommand = (rawCmd) => {
             if (!ggbAppletInstance || !rawCmd || rawCmd.trim() === '') return;
-            let cmd = rawCmd.trim();
-            // GeoGebra requires colons for equation labels (e.g., "line1: y = x - 1"), not "line1 = y = x - 1"
-            const doubleEqualsMatch = cmd.match(/^([a-zA-Z][a-zA-Z0-9]*)\s*=\s*([^=]+=.+)$/);
-            if (doubleEqualsMatch) {
-                cmd = `${doubleEqualsMatch[1]}: ${doubleEqualsMatch[2]}`;
+            const cmd = prepareCommand(rawCmd); // same preparation as the evaluation before the voice
+            // evalCommand returns whether GeoGebra accepted the command (error dialogs are disabled)
+            const accepted = ggbAppletInstance.evalCommand(cmd);
+            if (!accepted) {
+                console.warn('GeoGebra rejected command:', cmd);
             }
-            ggbAppletInstance.evalCommand(cmd);
         };
 
         const playCurrentStep = () => {
@@ -477,13 +542,13 @@ const app = createApp({
         return { 
             isDark, toggleDarkMode, showApiKeyModal, apiKey, prompt, promptBox, ttsVoice,
             imageBase64, imagePreview, handleImageUpload, removeImage,
-            useEdgeTts, edgeVoice, toggleEdgeTts, selectedModel,
+            useEdgeTts, edgeVoice, toggleEdgeTts, selectedModel, explainMore,
             gttsOptions, edgeTtsOptions, modelOptions,
             MAX_PROMPT_CHARS, isPromptOverLimit, canGenerate,
             loading, loadingMessage, loadingPercent, error, steps, meta, startTutor,
             appletLoaded, isPlaying, currentStep, togglePlay, resetLesson, nextStep,
             isFullscreen, toggleFullscreen, currentTypedText, volume,
-            progressText, lang, LANGS, setLang
+            progressText, lang, LANGS, setLang, providerWarning
         };
     }
 });
