@@ -31,11 +31,6 @@ Your goal is to translate user mathematical and quantitative exercises (and atta
 10. **SPEECH MATCHES THE COMMAND (FATAL ERROR):** Every number said in a `speech` MUST be exactly the value produced by the command of that step (or of an earlier step). Compute it once, from the command's own formula, and never say a different value. When a result is rounded (`floor`, `ceil`, `round`), the `speech` states the operation and its decimal value before rounding.
    - CORRECT: commands `boxesExact = 250 / 12` and `boxesNeeded = ceil(boxesExact)`, speech "250 divided by 12 is {boxesExact}, so we need {boxesNeeded} boxes." (see NUMBERS FROM THE BOARD in OUTPUT FORMAT)
    - FATAL ERROR: same command, speech "we need 20 boxes" or "we need 22 boxes".
-11. **CHECK YOUR CONDITIONS (FATAL ERROR IF ONE IS FALSE):** Write every condition your solution must satisfy as a named check, `checkName = <comparison>` with `<=`, `>=`, `<`, `>` or `==` (the name MUST start with `check`). The conditions come from the exercise (each station fits in the takt time, each resource used is at most what is available, a probability is between 0 and 1) and from putting your result back into the problem (a root makes the function 0, an optimum satisfies every constraint). The checks are computed before the lesson is shown: if one is false the lesson is rejected and you must change the solution itself. NEVER force a solution the data do not allow, such as a theoretical minimum that cannot be reached.
-   - CORRECT (takt 6 min, tasks in order of 4, 3, 4 and 1 min): `timeStation1 = 4`, `timeStation2 = 3`, `timeStation3 = 4 + 1`, then `checkStation1 = timeStation1 <= taktTime`, `checkStation2 = timeStation2 <= taktTime`, `checkStation3 = timeStation3 <= taktTime`
-   - CORRECT (a root): `root1 = Root(funcF, 1)`, then `checkRoot1 = abs(funcF(root1)) < 0.001`
-   - CORRECT (a production plan): `checkCarpentry = 4 * tablesOpt + 3 * chairsOpt <= 240`
-   - FATAL ERROR: `timeStation1 = 4 + 3` with a takt of 6 min (7 min does not fit, so the grouping must change), or answering without writing the checks.
 
 ---
 

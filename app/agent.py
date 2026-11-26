@@ -133,22 +133,21 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
         f"(~{len(system_prompt) // 4} tokens)"
     )
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content}
-    ]
-    
     max_retries = 3
-    arithmetic_retried = False
-    placeholder_retried = False
-    checks_retried = False
-    drawing_retried = False
+    full_prompt_sent = not prompt_modules
+    # Every validation note so far goes along with each retry: when one note replaced the previous one, fixing
+    # one problem brought back another (a lesson rewritten for a false check dropped its diagram)
+    notes, used_notes, candidates = [], set(), []
     for attempt in range(max_retries):
-        if attempt == 1 and prompt_modules:
+        if attempt >= 1 and not full_prompt_sent:
             # The first attempt may have failed because a topic module was left out: retry with all of them
             system_prompt, _ = build_system_prompt(None)
-            messages[0] = {"role": "system", "content": system_prompt}
+            full_prompt_sent = True
             logger.info(f"Retrying with the full system prompt (~{len(system_prompt) // 4} tokens)")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content + [{"type": "text", "text": note} for note in notes]},
+        ]
         try:
             logger.info(f"Generation attempt {attempt + 1} with target models: {target_models}")
             response = client.chat.send(
@@ -159,13 +158,13 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
             )
             #logs helper, to see which model was used in each response
             logger.info(f"OpenRouter successfully routed the request to model: {response.model}")
-            
+
             content = response.choices[0].message.content
-            
+
             if content is None:
                 logger.error(f"Model {response.model} returned empty/None content. This may be a safety refusal or API glitch.")
                 content = ""
-                
+
             # Extract JSON block if surrounded by markdown
             match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
             if match:
@@ -177,6 +176,9 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                 if start != -1 and end != -1:
                     clean_content = content[start:end+1].strip()
                 else:
+                    if candidates:
+                        logger.warning("No JSON object in this retry: delivering the best earlier lesson instead.")
+                        break
                     # No JSON object found at all. This usually means a conversational refusal or explanation.
                     # Instead of failing and retrying, we return a synthetic valid response so the tutor just "speaks" it.
                     logger.warning("No JSON object detected in response. Treating as conversational fallback.")
@@ -188,115 +190,32 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                             }
                         ],
                         "_meta": {
-                            "difficulty": locals().get("difficulty", "basic"),
+                            "difficulty": difficulty,
                             "model": response.model
                         }
                     }
-            
+
             data = json.loads(clean_content)
             # The model answers every question here before writing the steps; logged only for debugging
             logger.info(f"Lesson questions: {data.get('questions')}")
-            failed_checks = []
-            if "steps" in data and isinstance(data["steps"], list):
-                for step in data["steps"]:
-                    if isinstance(step, dict) and "command" in step:
-                        step["command"] = sanitize_geogebra_command(step.get("command", ""))
+            if not ("steps" in data and isinstance(data["steps"], list)):
+                data["_meta"] = {"difficulty": difficulty, "model": response.model, "failed_checks": []}
+                return data
+            for step in data["steps"]:
+                if isinstance(step, dict) and "command" in step:
+                    step["command"] = sanitize_geogebra_command(step.get("command", ""))
 
-                unknown = find_unknown_commands(data["steps"])
-                if unknown:
-                    logger.warning(f"Attempt {attempt + 1} used nonexistent GeoGebra commands: {unknown}")
-                    if attempt < max_retries - 1:
-                        # Discard this lesson and ask again from scratch, telling the model what was wrong
-                        messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content + [{"type": "text", "text": build_retry_note(unknown)}]},
-                        ]
-                        continue
-                    blank_unknown_commands(data["steps"], unknown)
+            candidate = _assess_lesson(data, attempt, response.model, client, target_models, user_content)
+            candidates.append(candidate)
+            if attempt < max_retries - 1:
+                kind, note = _next_retry_note(candidate, used_notes)
+                if note:
+                    if kind != "unknown":  # nonexistent commands may be retried every time, the rest only once
+                        used_notes.add(kind)
+                    notes.append(note)
+                    continue
+            break
 
-                # {name} placeholders (NUMBERS FROM THE BOARD) get their values later, from GeoGebra in the
-                # browser (/api/voice); here only placeholders that can never get a value are rejected
-                invalid = find_invalid_placeholders(data)
-                if invalid:
-                    logger.warning(f"Attempt {attempt + 1} used placeholders that can never get a value: {invalid}")
-                    if not placeholder_retried and attempt < max_retries - 1:
-                        placeholder_retried = True
-                        messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content + [{"type": "text", "text": build_placeholder_retry_note(invalid)}]},
-                        ]
-                        continue
-                    replace_unfilled_placeholders(data, only=invalid)
-
-                # A lesson that only computes numbers leaves the board empty. Checked before the reviewer call,
-                # so no review is paid for a lesson that is going to be rewritten anyway
-                if not lesson_draws_something(data["steps"]):
-                    logger.warning(f"Attempt {attempt + 1} draws nothing on the board")
-                    if not drawing_retried and attempt < max_retries - 1:
-                        drawing_retried = True
-                        messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content + [{"type": "text", "text": build_drawing_retry_note()}]},
-                        ]
-                        continue
-
-                # Checks: the lesson's own (CHECK YOUR CONDITIONS) plus those of a separate reviewer call
-                # (app/checker.py), which does not depend on the generator remembering rule 11. A false one
-                # means the solution breaks a condition of the exercise, which the generator rarely notices
-                checker_commands = write_checks(client, target_models, user_content, data)
-                data["_checks"] = checker_commands
-                failed_checks = find_failed_checks(data["steps"] + [{"command": c} for c in checker_commands])
-                if failed_checks:
-                    logger.warning(f"Attempt {attempt + 1} breaks its own checks: {failed_checks}")
-                    if not checks_retried and attempt < max_retries - 1:
-                        checks_retried = True
-                        messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content + [{"type": "text", "text": build_checks_retry_note(failed_checks)}]},
-                        ]
-                        continue
-
-                # Numbers the model typed itself are checked against what the commands compute. Placeholders
-                # count as stated, so the check runs on a copy with the arithmetic ones filled by the server
-                checked = copy.deepcopy({"language": data.get("language"), "steps": data["steps"], "questions": data.get("questions")})
-                fill_placeholders(checked)
-                # The reviewer's checks go along so the values they test are not demanded in the answers too
-                reviewer_steps = [{"command": c, "speech": ""} for c in checker_commands]
-                real_values = find_unconfirmed_results(checked["steps"] + reviewer_steps, checked.get("questions"))
-                if real_values:
-                    readable = {name: format_value(value) for name, value in real_values.items()}
-                    logger.warning(f"Attempt {attempt + 1} speeches do not state the values GeoGebra computes: {readable}")
-                    if not arithmetic_retried and attempt < max_retries - 1:
-                        # Only once per request: a second miss is more likely a false alarm than another mistake
-                        arithmetic_retried = True
-                        messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content + [{"type": "text", "text": build_arithmetic_retry_note(real_values)}]},
-                        ]
-                        continue
-
-                # Applied graphs only: in a functions lesson, Function(funcF, 0, 2) may highlight a piece of a
-                # curve that must stay visible
-                if "applied.md" in prompt_modules:
-                    hidden = hide_restricted_function_sources(data["steps"])
-                    if hidden:
-                        logger.info(f"Hid complete functions drawn again restricted: {hidden}")
-
-                # Only the accepted lesson is logged, one line per step, to diagnose what reached the board
-                final_answers = [q.get("answer") for q in checked.get("questions") or [] if isinstance(q, dict)]
-                logger.info(f"Answers (arithmetic placeholders filled; the rest are filled by GeoGebra): {final_answers}")
-                commands = [s.get("command", "") for s in data["steps"] if isinstance(s, dict)]
-                logger.info("Lesson commands:\n" + "\n".join(f"  {i}. {c}" for i, c in enumerate(commands, 1)))
-                if failed_checks:
-                    logger.warning("Delivering the lesson although it still breaks its own checks; the student is warned")
-            data["_meta"] = {
-                "difficulty": locals().get("difficulty", "basic"),
-                "model": response.model,
-                # Names of the lesson's checks that are false: the frontend warns that the result may be wrong
-                "failed_checks": [c.split(":", 1)[0] for c in failed_checks],
-            }
-            return data
-            
         except json.JSONDecodeError as e:
             logger.error(f"JSON Parsing Error on attempt {attempt + 1}: {e}")
             if selected_model == "auto":
@@ -312,10 +231,12 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
                 if attempt < max_retries - 1:
                     logger.info(f"Attempt {attempt + 1} failed. Retrying with manually selected model {selected_model}...")
                     continue
-                
+            if candidates:
+                break  # deliver the best earlier lesson
+
             logger.error(f"Raw response: {content if 'content' in locals() else 'None'}")
             raise Exception(f"The model failed to generate a valid lesson. It may have refused the prompt due to safety filters. Last response: {content[:300] if 'content' in locals() and content else 'Empty/None'}")
-            
+
         except Exception as e:
             logger.error(f"General Error: {e}")
             if selected_model == "auto":
@@ -328,4 +249,129 @@ def generate_geogebra_script(prompt: str, api_key: str = "", image_b64: str = No
             else:
                 if attempt < max_retries - 1:
                     continue
+            if candidates:
+                break  # deliver the best earlier lesson
             raise Exception(f"AI Processing Error: {e}")
+
+    if not candidates:
+        raise Exception("AI Processing Error: no lesson could be generated.")
+    # A retry can make a lesson worse (fix the numbers and drop the diagram): deliver the best one, not the last
+    best = min(candidates, key=_candidate_rank)
+    if best is not candidates[-1]:
+        logger.info(f"Delivering attempt {best['attempt'] + 1} of {len(candidates)}: it is better than the last one")
+    return _finalize_lesson(best, client, target_models, user_content, prompt_modules, difficulty)
+
+
+# --- One generated lesson as a candidate ------------------------------------------------------------
+# Every attempt is assessed in full and kept; retries get notes for the first problem found, and at the end
+# the best candidate is delivered (a retry can make a lesson worse, e.g. fix the numbers and drop the diagram).
+
+def _assess_lesson(data: dict, attempt: int, model: str, client, target_models: list, user_content: list) -> dict:
+    """Everything that is wrong with one generated lesson, without changing it."""
+    steps = data["steps"]
+    candidate = {
+        "attempt": attempt,
+        "data": data,
+        "model": model,
+        "unknown": find_unknown_commands(steps),
+        # {name} placeholders get their values later from GeoGebra (/api/voice); only those that can never
+        # get one are a problem here
+        "invalid": find_invalid_placeholders(data),
+        "draws": lesson_draws_something(steps),
+        "checks": None,
+    }
+    # The reviewer (app/checker.py) writes the conditions the solution must meet. It is only paid for lessons
+    # that draw something: one that draws nothing is rewritten anyway, or reviewed at the end if it is chosen
+    if candidate["draws"]:
+        candidate["checks"] = write_checks(client, target_models, user_content, data)
+    _evaluate_checks(candidate)
+
+    # Numbers the model typed itself are checked against what the commands compute. Placeholders count as
+    # stated, so the check runs on a copy with the arithmetic ones filled by the server
+    checked = copy.deepcopy({"language": data.get("language"), "steps": steps, "questions": data.get("questions")})
+    fill_placeholders(checked)
+    reviewer_steps = [{"command": c, "speech": ""} for c in candidate["checks"] or []]
+    candidate["unstated"] = find_unconfirmed_results(checked["steps"] + reviewer_steps, checked.get("questions"))
+    candidate["answers_filled"] = [q.get("answer") for q in checked.get("questions") or [] if isinstance(q, dict)]
+
+    n = attempt + 1
+    if candidate["unknown"]:
+        logger.warning(f"Attempt {n} used nonexistent GeoGebra commands: {candidate['unknown']}")
+    if candidate["invalid"]:
+        logger.warning(f"Attempt {n} used placeholders that can never get a value: {candidate['invalid']}")
+    if not candidate["draws"]:
+        logger.warning(f"Attempt {n} draws nothing on the board")
+    if candidate["failed_checks"]:
+        logger.warning(f"Attempt {n} breaks its own checks: {candidate['failed_checks']}")
+    if candidate["unstated"]:
+        readable = {name: format_value(value) for name, value in candidate["unstated"].items()}
+        logger.warning(f"Attempt {n} speeches do not state the values GeoGebra computes: {readable}")
+    return candidate
+
+
+def _evaluate_checks(candidate: dict) -> None:
+    steps = candidate["data"]["steps"]
+    candidate["failed_checks"] = find_failed_checks(steps + [{"command": c} for c in candidate["checks"] or []])
+
+
+def _next_retry_note(candidate: dict, used: set) -> tuple:
+    """(kind, note) for the first problem worth a retry, or (None, None). Each kind is retried once, except
+    nonexistent commands, which make GeoGebra reject steps."""
+    if candidate["unknown"]:
+        return "unknown", build_retry_note(candidate["unknown"])
+    if candidate["invalid"] and "placeholders" not in used:
+        return "placeholders", build_placeholder_retry_note(candidate["invalid"])
+    if not candidate["draws"] and "drawing" not in used:
+        return "drawing", build_drawing_retry_note()
+    if candidate["failed_checks"] and "checks" not in used:
+        return "checks", build_checks_retry_note(candidate["failed_checks"])
+    if candidate["unstated"] and "arithmetic" not in used:
+        # A second miss is more likely a false alarm than another mistake
+        return "arithmetic", build_arithmetic_retry_note(candidate["unstated"])
+    return None, None
+
+
+def _candidate_rank(candidate: dict) -> tuple:
+    """Lower is better: it draws, then fewer false checks, fewer broken commands and placeholders, fewer
+    values the voice never says; on a tie the later attempt, which had more notes to follow."""
+    return (not candidate["draws"], len(candidate["failed_checks"]), len(candidate["unknown"]),
+            len(candidate["invalid"]), len(candidate["unstated"]), -candidate["attempt"])
+
+
+def _finalize_lesson(candidate: dict, client, target_models: list, user_content: list, prompt_modules: list,
+                     difficulty: str) -> dict:
+    """Prepare the chosen candidate for /api/run."""
+    data = candidate["data"]
+    steps = data["steps"]
+    if candidate["unknown"]:
+        blank_unknown_commands(steps, candidate["unknown"])
+    if candidate["invalid"]:
+        replace_unfilled_placeholders(data, only=candidate["invalid"])
+    if candidate["checks"] is None:
+        # Not reviewed because it draws nothing: review it now so a wrong result still gets its warning
+        candidate["checks"] = write_checks(client, target_models, user_content, data)
+        _evaluate_checks(candidate)
+    data["_checks"] = candidate["checks"]
+
+    # Applied graphs only: in a functions lesson, Function(funcF, 0, 2) may highlight a piece of a curve that
+    # must stay visible
+    if "applied.md" in prompt_modules:
+        hidden = hide_restricted_function_sources(steps)
+        if hidden:
+            logger.info(f"Hid complete functions drawn again restricted: {hidden}")
+
+    # Only the delivered lesson is logged, one line per step, to diagnose what reached the board
+    logger.info(f"Answers (arithmetic placeholders filled; the rest are filled by GeoGebra): {candidate['answers_filled']}")
+    commands = [s.get("command", "") for s in steps if isinstance(s, dict)]
+    logger.info("Lesson commands:\n" + "\n".join(f"  {i}. {c}" for i, c in enumerate(commands, 1)))
+    if not candidate["draws"]:
+        logger.warning("Delivering a lesson that draws nothing: no attempt drew anything")
+    if candidate["failed_checks"]:
+        logger.warning("Delivering the lesson although it still breaks its own checks; the student is warned")
+    data["_meta"] = {
+        "difficulty": difficulty,
+        "model": candidate["model"],
+        # Names of the lesson's checks that are false: the frontend warns that the result may be wrong
+        "failed_checks": [c.split(":", 1)[0] for c in candidate["failed_checks"]],
+    }
+    return data

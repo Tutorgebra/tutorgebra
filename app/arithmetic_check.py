@@ -363,10 +363,10 @@ def find_failed_checks(steps) -> list:
 def build_checks_retry_note(failed: list) -> str:
     return (
         "[SYSTEM VALIDATION - CRITICAL] A previous answer to this request was REJECTED because these checks of its "
-        f"own solution are FALSE: {'; '.join(failed)}. The solution breaks a condition of the exercise. Change the "
+        f"solution are FALSE: {'; '.join(failed)}. The solution breaks a condition of the exercise. Change the "
         "solution itself (for example one more station, another grouping, another vertex or another value) so that "
-        "every check is true, and write the complete lesson again from scratch, keeping the checks AND the "
-        "visualization: the corrected solution must be drawn again (diagram, graph or figure), never only computed."
+        "every condition holds, and write the complete lesson again from scratch. The corrected solution MUST be "
+        "drawn again (diagram, graph or figure), never only computed."
     )
 
 
