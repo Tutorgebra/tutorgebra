@@ -35,6 +35,7 @@ Deployment is manual: the `Manual Deploy to Railway` workflow (`workflow_dispatc
 | Variable | Purpose |
 | :--- | :--- |
 | `OPENROUTER_API_KEY` | Server key, used when the user leaves the API key field blank. Loaded from `.env` locally. |
+| `LESSON_SIGNING_KEY` | HMAC secret that signs the lesson between `/api/run` and `/api/voice` (`app/lesson_token.py`). **Required in production with more than one replica**, set to the same value on every replica: without it each process makes up a random key, and when the two requests land on different replicas `/api/voice` answers 400 ("La lección caducó o no es válida") and the student gets no lesson. Read once per process, so changing it needs a redeploy. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
 | `REDIS_URL` | Global rate limiting. Optional — if Redis is unreachable the app logs a warning and falls back to the in-memory limiter. |
 | `ENVIRONMENT=production` / `RAILWAY_ENVIRONMENT_NAME` | Sets `IS_PRODUCTION`: disables `/docs`, `/redoc`, `/openapi.json` and turns on proxy-header trust by default. |
 | `TRUST_PROXY_HEADERS`, `TRUSTED_PROXY_HOPS` | Control how `get_client_ip` reads `X-Forwarded-For` (Nth hop from the right). |
